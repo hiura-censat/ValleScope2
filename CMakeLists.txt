@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project(ValleScope2 VERSION 0.0.0 LANGUAGES CXX)
 
+include(CTest)
+
 find_package(OpenSSL REQUIRED)
 
 set(HTSLIB_ROOT "" CACHE PATH "Root directory of the HTSlib installation")
@@ -31,7 +33,10 @@ add_executable(vallescope2
     src/anchor/genmap_runner.cpp
     src/anchor/window_scoring.cpp
     src/common/process.cpp
+    src/common/sha256.cpp
     src/common/workspace.cpp
+    src/context/anchor_grouping.cpp
+    src/context/structural_tokens.cpp
     src/interface/main.cpp
     src/interface/options.cpp
     src/input/fasta.cpp
@@ -49,3 +54,20 @@ target_compile_definitions(vallescope2 PRIVATE
 target_link_libraries(vallescope2 PRIVATE HTSlib::HTSlib OpenSSL::Crypto)
 
 install(TARGETS vallescope2 RUNTIME DESTINATION bin)
+
+if(BUILD_TESTING)
+    add_executable(anchor_grouping_test
+        test/anchor_grouping_test.cpp
+        src/common/sha256.cpp
+        src/context/anchor_grouping.cpp
+        src/context/structural_tokens.cpp
+        src/input/fasta_index.cpp
+    )
+    target_include_directories(anchor_grouping_test PRIVATE include)
+    target_compile_features(anchor_grouping_test PRIVATE cxx_std_17)
+    target_compile_options(anchor_grouping_test PRIVATE -Wall -Wextra -Wpedantic)
+    target_link_libraries(anchor_grouping_test PRIVATE
+        HTSlib::HTSlib OpenSSL::Crypto
+    )
+    add_test(NAME anchor-grouping COMMAND anchor_grouping_test)
+endif()

@@ -51,6 +51,8 @@ GenmapResult run_genmap(
         std::to_string(parameters.kmer_length),
         "-E",
         std::to_string(parameters.errors),
+        "-T",
+        std::to_string(parameters.threads),
         "-I",
         result.index_directory.string(),
         "-O",

@@ -2,6 +2,7 @@
 
 #include "vallescope2/anchor/anchor_selection.hpp"
 #include "vallescope2/anchor/genmap_runner.hpp"
+#include "vallescope2/common/sha256.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -17,13 +18,12 @@ struct AnchorMetadata {
     std::uint64_t sequence_length = 0;
     std::uint32_t genmap_k = 6;
     std::uint32_t genmap_e = 0;
+    std::uint32_t genmap_threads = 20;
     std::string genmap_command;
     std::string genmap_version;
     std::vector<std::filesystem::path> input_fastas;
     std::filesystem::path genmap_input;
 };
-
-std::string sha256_file(const std::filesystem::path& path);
 
 void write_anchor_bed(const std::filesystem::path& path,
                       const std::vector<AnchorCandidate>& anchors,

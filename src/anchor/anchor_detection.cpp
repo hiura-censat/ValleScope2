@@ -4,6 +4,9 @@
 #include "vallescope2/anchor/anchor_selection.hpp"
 #include "vallescope2/anchor/window_scoring.hpp"
 #include "vallescope2/common/workspace.hpp"
+#include "vallescope2/context/anchor_grouping.hpp"
+#include "vallescope2/context/structural_tokens.hpp"
+#include "vallescope2/fasta_index.hpp"
 #include "vallescope2/input_preparation.hpp"
 
 #include <chrono>
@@ -93,12 +96,27 @@ void run_anchor_detection(const ProgramOptions& options) {
     const auto anchor_bed = current / "anchors.bed";
     const auto anchor_metadata = current / "anchors.meta.json";
     const auto genmap_log = current / "genmap.log";
+    const auto grouped_anchors = current / "grouped_anchors.tsv";
+    const auto anchor_groups = current / "anchor_groups.tsv";
+    const auto structural_tokens = current / "structural_tokens.tsv";
+    const auto structural_token_metadata =
+        current / "structural_tokens.meta.json";
     write_anchor_bed(anchor_bed, selection.anchors, genmap.catalog);
+
+    const auto context_index = workspace.path() / "context_input.fa.fai";
+    build_fasta_index(genmap.input_fasta, context_index);
+    const auto grouping = group_anchors(
+        anchor_bed, genmap.input_fasta, context_index, options.anchor_length,
+        grouped_anchors, anchor_groups);
+    const auto tokenization = build_structural_tokens(
+        grouped_anchors, options.distance_bin_size, structural_tokens,
+        structural_token_metadata);
     write_anchor_metadata(
         anchor_metadata,
         {options.anchor_length, options.min_center_distance, options.target_density,
          genmap.catalog.total_bases(), options.genmap.kmer_length,
-         options.genmap.errors, genmap.command, genmap.version,
+         options.genmap.errors, options.genmap.threads,
+         genmap.command, genmap.version,
          options.input_paths, genmap.input_fasta},
         selection);
     std::filesystem::copy_file(genmap.log, genmap_log,
@@ -113,6 +131,17 @@ void run_anchor_detection(const ProgramOptions& options) {
               << selection_time.count() << " s.\n"
               << "Anchor BED: " << anchor_bed << '\n'
               << "Anchor metadata: " << anchor_metadata << '\n'
+              << "Grouped anchors: " << grouped_anchors << '\n'
+              << "Anchor groups: " << anchor_groups << '\n'
+              << "Constructed " << grouping.group_count << " anchor group(s); "
+              << grouping.ungrouped_anchor_count
+              << " anchor(s) containing N were not grouped.\n"
+              << "Structural tokens: " << structural_tokens << '\n'
+              << "Structural token metadata: " << structural_token_metadata
+              << '\n'
+              << "Constructed " << tokenization.token_count()
+              << " structural token(s) using " << options.distance_bin_size
+              << " bp distance bins.\n"
               << "GenMap log: " << genmap_log << '\n';
 }
 

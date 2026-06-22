@@ -1,12 +1,7 @@
 #include "vallescope2/anchor/anchor_output.hpp"
 
-#include <openssl/evp.h>
-
-#include <array>
 #include <fstream>
 #include <iomanip>
-#include <memory>
-#include <sstream>
 #include <stdexcept>
 
 namespace vallescope2 {
@@ -28,42 +23,6 @@ std::string json_escape(const std::string& value) {
 }
 
 }  // namespace
-
-std::string sha256_file(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input) {
-        throw std::runtime_error("cannot open file for SHA-256: " +
-                                 path.string());
-    }
-
-    using Context = std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)>;
-    Context context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
-    if (!context || EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1) {
-        throw std::runtime_error("failed to initialize SHA-256");
-    }
-
-    std::array<char, 1 << 16> buffer{};
-    while (input) {
-        input.read(buffer.data(), buffer.size());
-        const auto count = input.gcount();
-        if (count > 0 &&
-            EVP_DigestUpdate(context.get(), buffer.data(), count) != 1) {
-            throw std::runtime_error("failed to update SHA-256");
-        }
-    }
-
-    std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
-    unsigned int digest_size = 0;
-    if (EVP_DigestFinal_ex(context.get(), digest.data(), &digest_size) != 1) {
-        throw std::runtime_error("failed to finalize SHA-256");
-    }
-    std::ostringstream value;
-    value << std::hex << std::setfill('0');
-    for (unsigned int i = 0; i < digest_size; ++i) {
-        value << std::setw(2) << static_cast<unsigned int>(digest[i]);
-    }
-    return value.str();
-}
 
 void write_anchor_bed(const std::filesystem::path& path,
                       const std::vector<AnchorCandidate>& anchors,
@@ -113,6 +72,7 @@ void write_anchor_metadata(const std::filesystem::path& path,
            << "  \"sequence_length\": " << metadata.sequence_length << ",\n"
            << "  \"genmap_k\": " << metadata.genmap_k << ",\n"
            << "  \"genmap_e\": " << metadata.genmap_e << ",\n"
+           << "  \"genmap_threads\": " << metadata.genmap_threads << ",\n"
            << "  \"genmap_command\": \""
            << json_escape(metadata.genmap_command) << "\",\n"
            << "  \"genmap_version\": \""

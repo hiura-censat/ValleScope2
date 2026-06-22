@@ -24,6 +24,8 @@ void print_usage(std::ostream& output) {
            << "  -al, --anchor-length INT  Anchor/window length [50]\n"
            << "  -md, --min-center-distance INT  Minimum center distance [100]\n"
            << "  -td, --target-density INT  Target anchors per Mb [6000]\n"
+           << "  -db, --distance-bin-size INT  Distance token bin size [50]\n"
+           << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
            << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
            << "  --dump-window-scores  Write window_scores.tsv (very large)\n"
@@ -70,6 +72,10 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
             options.min_center_distance = parse_unsigned(argc, argv, index, argument);
         else if (argument == "-td" || argument == "--target-density")
             options.target_density = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-db" || argument == "--distance-bin-size")
+            options.distance_bin_size = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-t" || argument == "--threads")
+            options.genmap.threads = parse_unsigned(argc, argv, index, argument);
         else if (argument == "--genmap") {
             if (++index >= argc) throw std::runtime_error("--genmap requires a path");
             options.genmap.executable = argv[index];
@@ -90,6 +96,10 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("more than two FASTA files require the --combine option");
     if (options.genmap.kmer_length == 0)
         throw std::runtime_error("GenMap k-mer length must be greater than zero");
+    if (options.genmap.threads == 0)
+        throw std::runtime_error("thread count must be greater than zero");
+    if (options.distance_bin_size == 0)
+        throw std::runtime_error("distance bin size must be greater than zero");
     if (options.anchor_length < options.genmap.kmer_length)
         throw std::runtime_error("anchor length must be greater than or equal to k-mer length");
     return options;

@@ -14,6 +14,7 @@ struct GenmapParameters {
     std::filesystem::path executable = "genmap";
     std::uint32_t kmer_length = 6;
     std::uint32_t errors = 0;
+    std::uint32_t threads = 20;
 };
 
 struct GenmapResult {

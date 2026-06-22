@@ -34,7 +34,12 @@ build/vallescope2 -K 6 -E 0 --debug genome.fa
 build/vallescope2 --kmer-length 8 --kmer-errors 1 --debug genome.fa
 build/vallescope2 -K 6 -E 0 -al 50 --debug genome.fa
 build/vallescope2 -md 100 -td 6000 --debug genome.fa
+build/vallescope2 -t 8 --debug genome.fa
+build/vallescope2 -db 50 --debug genome.fa
 ```
+
+`-t/--threads` controls the number of threads passed to GenMap (`-T`); the
+default is 20.
 
 The executable is found on `PATH`, in `.tools/genmap/bin/genmap`, or can be
 specified explicitly with `--genmap PATH`.
@@ -48,7 +53,21 @@ Anchor candidates are processed from low to high score. Candidates within the
 minimum center distance of an accepted anchor are removed. The defaults are
 100 bp (`-md/--min-center-distance`) and 6000 anchors/Mb
 (`-td/--target-density`). The persistent outputs are `anchors.bed`,
-`anchors.meta.json`, and `genmap.log`.
+`anchors.meta.json`, `grouped_anchors.tsv`, `anchor_groups.tsv`, and
+`structural_tokens.tsv`, `structural_tokens.meta.json`, and `genmap.log`.
+
+For each selected anchor, ValleScope2 extracts its sequence from the normalized
+GenMap input FASTA and defines a strand-invariant canonical sequence as the
+lexicographically smaller of the forward sequence and its reverse complement.
+The SHA-256 of the exact canonical sequence is used as the stable anchor group
+ID. Anchors containing `N` remain in `grouped_anchors.tsv` but are not assigned
+to a group.
+
+Groupable anchors are converted into an alternating structural token stream.
+Anchor tokens are written as `A:<anchor_group_id>`. The center-to-center
+distance between adjacent groupable anchors is divided into floor-based bins
+and written as `D:<bin>`. The bin size is controlled by
+`-db/--distance-bin-size` and defaults to 50 bp.
 
 Window scores are not written by `--debug` because the file can be larger than
 the genome. Use `--dump-window-scores` only when the full TSV is needed.
