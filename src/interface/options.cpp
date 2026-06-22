@@ -1,0 +1,98 @@
+#include "vallescope2/interface/options.hpp"
+
+#include <cstdlib>
+#include <iostream>
+#include <limits>
+#include <stdexcept>
+#include <string>
+
+#ifndef VALLESCOPE2_VERSION
+#define VALLESCOPE2_VERSION "unknown"
+#endif
+
+namespace vallescope2 {
+namespace {
+
+void print_usage(std::ostream& output) {
+    output << "Usage: vallescope2 [options] <input.fa>\n"
+           << "       vallescope2 [options] <target.fa> <query.fa>\n"
+           << "       vallescope2 [options] --combine <input1.fa> <input2.fa> [...]\n\n"
+           << "Options:\n"
+           << "  --combine  Combine all input FASTAs for all-vs-all self comparison\n"
+           << "  -K, --kmer-length INT  GenMap k-mer length [6]\n"
+           << "  -E, --kmer-errors INT  GenMap errors [0]\n"
+           << "  -al, --anchor-length INT  Anchor/window length [50]\n"
+           << "  -md, --min-center-distance INT  Minimum center distance [100]\n"
+           << "  -td, --target-density INT  Target anchors per Mb [6000]\n"
+           << "  --genmap PATH  GenMap executable [genmap]\n"
+           << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
+           << "  --dump-window-scores  Write window_scores.tsv (very large)\n"
+           << "  -h, --help  Show this help message\n"
+           << "  -v, --version  Show version information\n";
+}
+
+std::uint32_t parse_unsigned(const int argc, char* argv[], int& index,
+                             const std::string& option) {
+    if (++index >= argc) throw std::runtime_error(option + " requires an integer value");
+    const std::string value = argv[index];
+    try {
+        std::size_t parsed = 0;
+        const unsigned long number = std::stoul(value, &parsed);
+        if (value.empty() || value.front() == '-' || parsed != value.size() ||
+            number > std::numeric_limits<std::uint32_t>::max()) {
+            throw std::out_of_range("invalid integer");
+        }
+        return static_cast<std::uint32_t>(number);
+    } catch (const std::exception&) {
+        throw std::runtime_error("invalid value for " + option + ": " + value);
+    }
+}
+
+}  // namespace
+
+ProgramOptions parse_arguments(const int argc, char* argv[]) {
+    ProgramOptions options;
+    const auto local_genmap = std::filesystem::current_path() / ".tools/genmap/bin/genmap";
+    if (std::filesystem::is_regular_file(local_genmap)) options.genmap.executable = local_genmap;
+
+    for (int index = 1; index < argc; ++index) {
+        const std::string argument = argv[index];
+        if (argument == "--combine") options.combine = true;
+        else if (argument == "--debug") options.debug = true;
+        else if (argument == "--dump-window-scores") options.dump_window_scores = true;
+        else if (argument == "-K" || argument == "--kmer-length")
+            options.genmap.kmer_length = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-E" || argument == "--kmer-errors")
+            options.genmap.errors = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-al" || argument == "--anchor-length")
+            options.anchor_length = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-md" || argument == "--min-center-distance")
+            options.min_center_distance = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-td" || argument == "--target-density")
+            options.target_density = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--genmap") {
+            if (++index >= argc) throw std::runtime_error("--genmap requires a path");
+            options.genmap.executable = argv[index];
+        } else if (argument == "-h" || argument == "--help") {
+            print_usage(std::cout);
+            std::exit(0);
+        } else if (argument == "-v" || argument == "--version") {
+            std::cout << "vallescope2 " << VALLESCOPE2_VERSION << '\n';
+            std::exit(0);
+        } else if (!argument.empty() && argument.front() == '-') {
+            throw std::runtime_error("unknown option: " + argument);
+        } else options.input_paths.emplace_back(argument);
+    }
+    if (options.input_paths.empty()) throw std::runtime_error("at least one FASTA file is required");
+    if (options.combine && options.input_paths.size() < 2)
+        throw std::runtime_error("--combine requires at least two FASTA files");
+    if (!options.combine && options.input_paths.size() > 2)
+        throw std::runtime_error("more than two FASTA files require the --combine option");
+    if (options.genmap.kmer_length == 0)
+        throw std::runtime_error("GenMap k-mer length must be greater than zero");
+    if (options.anchor_length < options.genmap.kmer_length)
+        throw std::runtime_error("anchor length must be greater than or equal to k-mer length");
+    return options;
+}
+
+}  // namespace vallescope2

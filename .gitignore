@@ -1,0 +1,20 @@
+# Local dependencies and build files
+.tools/
+build/
+
+# Large input data
+data/
+
+# ValleScope2 outputs
+vallescope2-debug/
+anchors.bed
+anchors.meta.json
+genmap.log
+window_scores.tsv
+
+# Generated sequence indexes and profiles
+*.fai
+*.gzi
+*.freq16
+*.bedgraph
+*.bw
