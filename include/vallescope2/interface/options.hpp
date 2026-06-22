@@ -16,6 +16,7 @@ struct ProgramOptions {
     std::uint32_t min_center_distance = 100;
     std::uint32_t target_density = 6000;
     std::uint32_t distance_bin_size = 50;
+    std::uint32_t context_radius_tokens = 25;
     GenmapParameters genmap;
     std::vector<std::filesystem::path> input_paths;
 };

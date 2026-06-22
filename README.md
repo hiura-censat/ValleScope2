@@ -36,6 +36,7 @@ build/vallescope2 -K 6 -E 0 -al 50 --debug genome.fa
 build/vallescope2 -md 100 -td 6000 --debug genome.fa
 build/vallescope2 -t 8 --debug genome.fa
 build/vallescope2 -db 50 --debug genome.fa
+build/vallescope2 -cr 25 --debug genome.fa
 ```
 
 `-t/--threads` controls the number of threads passed to GenMap (`-T`); the
@@ -55,6 +56,8 @@ minimum center distance of an accepted anchor are removed. The defaults are
 (`-td/--target-density`). The persistent outputs are `anchors.bed`,
 `anchors.meta.json`, `grouped_anchors.tsv`, `anchor_groups.tsv`, and
 `structural_tokens.tsv`, `structural_tokens.meta.json`, and `genmap.log`.
+The structural-context phase additionally writes `anchor_contexts.tsv`,
+`context_groups.tsv`, `tmus.tsv`, and `structural_contexts.meta.json`.
 
 For each selected anchor, ValleScope2 extracts its sequence from the normalized
 GenMap input FASTA and defines a strand-invariant canonical sequence as the
@@ -68,6 +71,11 @@ Anchor tokens are written as `A:<anchor_group_id>`. The center-to-center
 distance between adjacent groupable anchors is divided into floor-based bins
 and written as `D:<bin>`. The bin size is controlled by
 `-db/--distance-bin-size` and defaults to 50 bp.
+
+Each anchor context extends `-cr/--context-radius-tokens` tokens to either side
+(default 25, for at most 51 tokens). Sample-specific token-level minimal unique
+substrings are counted only when fully contained in the context. Substrings
+and whole contexts are canonicalized against their reversed token order.
 
 Window scores are not written by `--debug` because the file can be larger than
 the genome. Use `--dump-window-scores` only when the full TSV is needed.

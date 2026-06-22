@@ -13,6 +13,10 @@ grouped_anchors.tsv
 anchor_groups.tsv
 structural_tokens.tsv
 structural_tokens.meta.json
+anchor_contexts.tsv
+context_groups.tsv
+tmus.tsv
+structural_contexts.meta.json
 genmap.log
 window_scores.tsv
 

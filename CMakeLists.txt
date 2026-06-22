@@ -37,6 +37,7 @@ add_executable(vallescope2
     src/common/workspace.cpp
     src/context/anchor_grouping.cpp
     src/context/structural_tokens.cpp
+    src/context/structural_context.cpp
     src/interface/main.cpp
     src/interface/options.cpp
     src/input/fasta.cpp
@@ -61,6 +62,7 @@ if(BUILD_TESTING)
         src/common/sha256.cpp
         src/context/anchor_grouping.cpp
         src/context/structural_tokens.cpp
+        src/context/structural_context.cpp
         src/input/fasta_index.cpp
     )
     target_include_directories(anchor_grouping_test PRIVATE include)

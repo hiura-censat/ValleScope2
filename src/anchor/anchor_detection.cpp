@@ -6,6 +6,7 @@
 #include "vallescope2/common/workspace.hpp"
 #include "vallescope2/context/anchor_grouping.hpp"
 #include "vallescope2/context/structural_tokens.hpp"
+#include "vallescope2/context/structural_context.hpp"
 #include "vallescope2/fasta_index.hpp"
 #include "vallescope2/input_preparation.hpp"
 
@@ -101,6 +102,11 @@ void run_anchor_detection(const ProgramOptions& options) {
     const auto structural_tokens = current / "structural_tokens.tsv";
     const auto structural_token_metadata =
         current / "structural_tokens.meta.json";
+    const auto anchor_contexts = current / "anchor_contexts.tsv";
+    const auto context_groups = current / "context_groups.tsv";
+    const auto tmus = current / "tmus.tsv";
+    const auto structural_context_metadata =
+        current / "structural_contexts.meta.json";
     write_anchor_bed(anchor_bed, selection.anchors, genmap.catalog);
 
     const auto context_index = workspace.path() / "context_input.fa.fai";
@@ -111,6 +117,13 @@ void run_anchor_detection(const ProgramOptions& options) {
     const auto tokenization = build_structural_tokens(
         grouped_anchors, options.distance_bin_size, structural_tokens,
         structural_token_metadata);
+    const auto context_start = std::chrono::steady_clock::now();
+    const auto contexts = build_structural_contexts(
+        structural_tokens, prepared.sequence_table,
+        options.context_radius_tokens, anchor_contexts, context_groups, tmus,
+        structural_context_metadata);
+    const std::chrono::duration<double> context_time =
+        std::chrono::steady_clock::now() - context_start;
     write_anchor_metadata(
         anchor_metadata,
         {options.anchor_length, options.min_center_distance, options.target_density,
@@ -142,6 +155,15 @@ void run_anchor_detection(const ProgramOptions& options) {
               << "Constructed " << tokenization.token_count()
               << " structural token(s) using " << options.distance_bin_size
               << " bp distance bins.\n"
+              << "Anchor contexts: " << anchor_contexts << '\n'
+              << "Context groups: " << context_groups << '\n'
+              << "tMUS table: " << tmus << '\n'
+              << "Structural context metadata: "
+              << structural_context_metadata << '\n'
+              << "Constructed " << contexts.anchor_count << " context(s), "
+              << contexts.context_group_count << " canonical context group(s), and "
+              << contexts.tmus_count << " sample-specific tMUS in "
+              << context_time.count() << " s.\n"
               << "GenMap log: " << genmap_log << '\n';
 }
 

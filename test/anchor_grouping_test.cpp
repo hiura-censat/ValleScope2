@@ -1,5 +1,6 @@
 #include "vallescope2/context/anchor_grouping.hpp"
 #include "vallescope2/context/structural_tokens.hpp"
+#include "vallescope2/context/structural_context.hpp"
 #include "vallescope2/fasta_index.hpp"
 
 #include <chrono>
@@ -31,6 +32,12 @@ int main() {
         const auto token_input = directory / "token_input.tsv";
         const auto tokens = directory / "tokens.tsv";
         const auto token_metadata = directory / "tokens.meta.json";
+        const auto context_tokens = directory / "context_tokens.tsv";
+        const auto sequence_table = directory / "sequences.tsv";
+        const auto anchor_contexts = directory / "anchor_contexts.tsv";
+        const auto context_groups = directory / "context_groups.tsv";
+        const auto tmus = directory / "tmus.tsv";
+        const auto context_metadata = directory / "contexts.meta.json";
         {
             std::ofstream output(fasta);
             output << ">chr1\nACGTACGTNNACGT\n";
@@ -97,6 +104,47 @@ int main() {
         require(token_contents.find("s2\t0\tA\tA:g1\ta4\t.\t.") !=
                     std::string::npos,
                 "sequence token index was not reset");
+
+        {
+            std::ofstream output(sequence_table);
+            output << "sequence_id\tsample\thaplotype\toriginal_id\tsource_file"
+                      "\tlength\trole\n"
+                   << "s1a\tsample1\t1\tc1\ta.fa\t10\tself\n"
+                   << "s1b\tsample1\t1\tc2\ta.fa\t10\tself\n"
+                   << "s2seq\tsample2\t1\tc3\tb.fa\t10\tself\n";
+        }
+        {
+            std::ofstream output(context_tokens);
+            output << "sequence_id\ttoken_index\ttoken_type\ttoken\tanchor_id"
+                      "\traw_distance\tdistance_bin\n"
+                   << "s1a\t0\tA\tA:x\ta1\t.\t.\n"
+                   << "s1a\t1\tD\tD:1\t.\t50\t1\n"
+                   << "s1a\t2\tA\tA:y\ta2\t.\t.\n"
+                   << "s1b\t0\tA\tA:y\ta3\t.\t.\n"
+                   << "s1b\t1\tD\tD:1\t.\t50\t1\n"
+                   << "s1b\t2\tA\tA:x\ta4\t.\t.\n"
+                   << "s2seq\t0\tA\tA:z\tb1\t.\t.\n"
+                   << "s2seq\t1\tD\tD:2\t.\t100\t2\n"
+                   << "s2seq\t2\tA\tA:q\tb2\t.\t.\n";
+        }
+        const auto context_result = vallescope2::build_structural_contexts(
+            context_tokens, sequence_table, 2, anchor_contexts, context_groups,
+            tmus, context_metadata);
+        require(context_result.anchor_count == 6, "unexpected context count");
+        require(context_result.context_group_count == 2,
+                "reverse contexts did not canonicalize together");
+        require(context_result.tmus_count == 2,
+                "reverse-equivalent substrings were treated as unique");
+        std::ifstream anchor_context_stream(anchor_contexts);
+        const std::string anchor_context_contents(
+            (std::istreambuf_iterator<char>(anchor_context_stream)),
+            std::istreambuf_iterator<char>());
+        const auto b1 = anchor_context_contents.find("b1\ts2seq\tsample2\t0\t0\t3\t3\t");
+        require(b1 != std::string::npos, "sample2 context missing");
+        const auto b1_end = anchor_context_contents.find('\n', b1);
+        require(anchor_context_contents.substr(b1, b1_end - b1).rfind("\t0\t2") !=
+                    std::string::npos,
+                "sample-specific alpha prime is incorrect");
 
         std::filesystem::remove_all(directory);
         return 0;
