@@ -1,6 +1,7 @@
 #include "vallescope2/context/anchor_grouping.hpp"
 #include "vallescope2/context/structural_tokens.hpp"
 #include "vallescope2/context/structural_context.hpp"
+#include "vallescope2/correspondence/assignment.hpp"
 #include "vallescope2/fasta_index.hpp"
 
 #include <chrono>
@@ -38,6 +39,10 @@ int main() {
         const auto context_groups = directory / "context_groups.tsv";
         const auto tmus = directory / "tmus.tsv";
         const auto context_metadata = directory / "contexts.meta.json";
+        const auto assignment_grouped = directory / "assignment_grouped.tsv";
+        const auto assignment_contexts = directory / "assignment_contexts.tsv";
+        const auto assignments = directory / "assignments.tsv";
+        const auto assignment_metadata = directory / "assignments.meta.json";
         {
             std::ofstream output(fasta);
             output << ">chr1\nACGTACGTNNACGT\n";
@@ -139,12 +144,92 @@ int main() {
         const std::string anchor_context_contents(
             (std::istreambuf_iterator<char>(anchor_context_stream)),
             std::istreambuf_iterator<char>());
+        require(anchor_context_contents.find(
+                    "canonical_context_key\tforward_context_tokens\t"
+                    "sample1_alpha_prime") != std::string::npos,
+                "forward_context_tokens header is missing");
         const auto b1 = anchor_context_contents.find("b1\ts2seq\tsample2\t0\t0\t3\t3\t");
         require(b1 != std::string::npos, "sample2 context missing");
         const auto b1_end = anchor_context_contents.find('\n', b1);
-        require(anchor_context_contents.substr(b1, b1_end - b1).rfind("\t0\t2") !=
-                    std::string::npos,
+        const auto b1_line = anchor_context_contents.substr(b1, b1_end - b1);
+        require(b1_line.find("\tA:z|D:2|A:q\t") != std::string::npos,
+                "forward context tokens are incorrect");
+        require(b1_line.rfind("\t0\t2") != std::string::npos,
                 "sample-specific alpha prime is incorrect");
+
+        {
+            std::ofstream output(assignment_grouped);
+            output << "anchor_id\tsequence_id\tstart\tend\tanchor_seq"
+                      "\tcanonical_seq\tanchor_group_id\tnumeric_group_id"
+                      "\torientation\tgroupable\n"
+                   << "t1\tseqA\t0\t50\tA\tA\tg1\t0\t+\ttrue\n"
+                   << "t2\tseqA\t100\t150\tA\tA\tg2\t1\t+\ttrue\n"
+                   << "t3\tseqA\t200\t250\tA\tA\tg3\t2\t+\ttrue\n"
+                   << "t4\tseqA\t300\t350\tA\tA\tg3\t2\t+\ttrue\n"
+                   << "q1\tseqB\t0\t50\tA\tA\tg1\t0\t+\ttrue\n"
+                   << "q2\tseqB\t100\t150\tA\tA\tg2\t1\t+\ttrue\n"
+                   << "q3\tseqB\t200\t250\tA\tA\tg3\t2\t+\ttrue\n"
+                   << "q4\tseqB\t300\t350\tA\tA\tg4\t3\t+\ttrue\n";
+        }
+        {
+            std::ofstream output(assignment_contexts);
+            output << "anchor_id\tsequence_id\tsample\tcenter_token_index"
+                      "\tcontext_start_token\tcontext_end_token\tcontext_length"
+                      "\tcanonical_context_key\tforward_context_tokens"
+                      "\tsampleA_alpha_prime\tsampleB_alpha_prime\n"
+                   << "t1\tseqA\tsampleA\t0\t0\t3\t3\tk1\tA:x|D:1|A:y\t0\t3\n"
+                   << "t2\tseqA\tsampleA\t0\t0\t3\t3\tkt2\tA:b|D:1|A:a\t0\t5\n"
+                   << "t3\tseqA\tsampleA\t0\t0\t1\t1\tkt3\tA:m\t0\t6\n"
+                   << "t4\tseqA\tsampleA\t0\t0\t1\t1\tkt4\tA:m\t0\t6\n"
+                   << "q1\tseqB\tsampleB\t0\t0\t3\t3\tk1\tA:x|D:1|A:y\t2\t0\n"
+                   << "q2\tseqB\tsampleB\t0\t0\t3\t3\tkq2\tA:a|D:1|A:b\t5\t0\n"
+                   << "q3\tseqB\tsampleB\t0\t0\t1\t1\tkq3\tA:m\t6\t0\n"
+                   << "q4\tseqB\tsampleB\t0\t0\t1\t1\tkq4\tA:z\t7\t0\n";
+        }
+        {
+            std::ofstream output(sequence_table);
+            output << "sequence_id\tsample\thaplotype\toriginal_id\tsource_file"
+                      "\tlength\trole\n"
+                   << "seqA\tsampleA\t1\tseqA\ta.fa\t1000\tself\n"
+                   << "seqB\tsampleB\t1\tseqB\tb.fa\t1000\tself\n";
+        }
+        const auto assignment_result =
+            vallescope2::assign_context_correspondences(
+                assignment_grouped, assignment_contexts, sequence_table,
+                assignments, assignment_metadata, {2, 5});
+        require(assignment_result.ordered_pair_count == 2,
+                "unexpected ordered pair count");
+        require(assignment_result.exact_context_primary_count >= 1,
+                "exact context primary assignment missing");
+        require(assignment_result.edit_distance_primary_count >= 1,
+                "edit-distance primary assignment missing");
+        require(assignment_result.ambiguous_query_count >= 1,
+                "ambiguous assignment missing");
+        require(assignment_result.unmatched_count >= 1,
+                "unmatched assignment missing");
+        std::ifstream assignment_stream(assignments);
+        const std::string assignment_contents(
+            (std::istreambuf_iterator<char>(assignment_stream)),
+            std::istreambuf_iterator<char>());
+        require(assignment_contents.find(
+                    "sampleA\tsampleB\tq1\tt1\tprimary\texact_context\t."
+                ) != std::string::npos,
+                "exact primary row is incorrect");
+        require(assignment_contents.find(
+                    "sampleA\tsampleB\tq2\tt2\tprimary\tedit_distance\t-"
+                ) != std::string::npos,
+                "reverse-strand edit-distance row is incorrect");
+        require(assignment_contents.find(
+                    "sampleA\tsampleB\tq3\tt3\tambiguous\tedit_distance"
+                ) != std::string::npos &&
+                assignment_contents.find(
+                    "sampleA\tsampleB\tq3\tt4\tambiguous\tedit_distance"
+                ) != std::string::npos,
+                "ambiguous rows are incorrect");
+        require(assignment_contents.find(
+                    "sampleA\tsampleB\tq4\t.\tunmatched\tunmatched"
+                ) != std::string::npos,
+                "unmatched row is incorrect");
 
         std::filesystem::remove_all(directory);
         return 0;

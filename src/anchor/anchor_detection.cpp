@@ -7,6 +7,7 @@
 #include "vallescope2/context/anchor_grouping.hpp"
 #include "vallescope2/context/structural_tokens.hpp"
 #include "vallescope2/context/structural_context.hpp"
+#include "vallescope2/correspondence/assignment.hpp"
 #include "vallescope2/fasta_index.hpp"
 #include "vallescope2/input_preparation.hpp"
 
@@ -107,6 +108,8 @@ void run_anchor_detection(const ProgramOptions& options) {
     const auto tmus = current / "tmus.tsv";
     const auto structural_context_metadata =
         current / "structural_contexts.meta.json";
+    const auto assignments = current / "assignments.tsv";
+    const auto assignment_metadata = current / "assignments.meta.json";
     write_anchor_bed(anchor_bed, selection.anchors, genmap.catalog);
 
     const auto context_index = workspace.path() / "context_input.fa.fai";
@@ -124,6 +127,12 @@ void run_anchor_detection(const ProgramOptions& options) {
         structural_context_metadata);
     const std::chrono::duration<double> context_time =
         std::chrono::steady_clock::now() - context_start;
+    const auto assignment_start = std::chrono::steady_clock::now();
+    const auto assignment = assign_context_correspondences(
+        grouped_anchors, anchor_contexts, prepared.sequence_table, assignments,
+        assignment_metadata, options.assignment);
+    const std::chrono::duration<double> assignment_time =
+        std::chrono::steady_clock::now() - assignment_start;
     write_anchor_metadata(
         anchor_metadata,
         {options.anchor_length, options.min_center_distance, options.target_density,
@@ -164,6 +173,13 @@ void run_anchor_detection(const ProgramOptions& options) {
               << contexts.context_group_count << " canonical context group(s), and "
               << contexts.tmus_count << " sample-specific tMUS in "
               << context_time.count() << " s.\n"
+              << "Assignments: " << assignments << '\n'
+              << "Assignment metadata: " << assignment_metadata << '\n'
+              << "Assigned " << assignment.primary_count << " primary, "
+              << assignment.ambiguous_query_count << " ambiguous query, and "
+              << assignment.unmatched_count << " unmatched query anchor(s) across "
+              << assignment.ordered_pair_count << " ordered pair(s) in "
+              << assignment_time.count() << " s.\n"
               << "GenMap log: " << genmap_log << '\n';
 }
 

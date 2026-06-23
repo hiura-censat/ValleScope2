@@ -35,8 +35,9 @@ build/vallescope2 --kmer-length 8 --kmer-errors 1 --debug genome.fa
 build/vallescope2 -K 6 -E 0 -al 50 --debug genome.fa
 build/vallescope2 -md 100 -td 6000 --debug genome.fa
 build/vallescope2 -t 8 --debug genome.fa
-build/vallescope2 -db 50 --debug genome.fa
-build/vallescope2 -cr 25 --debug genome.fa
+build/vallescope2 -db 10 --debug genome.fa
+build/vallescope2 -cr 50 --debug genome.fa
+build/vallescope2 -mcs -10 -pm 5 --debug genome.fa
 ```
 
 `-t/--threads` controls the number of threads passed to GenMap (`-T`); the
@@ -58,6 +59,13 @@ minimum center distance of an accepted anchor are removed. The defaults are
 `structural_tokens.tsv`, `structural_tokens.meta.json`, and `genmap.log`.
 The structural-context phase additionally writes `anchor_contexts.tsv`,
 `context_groups.tsv`, `tmus.tsv`, and `structural_contexts.meta.json`.
+The context-based correspondence phase writes `assignments.tsv` and
+`assignments.meta.json`. Candidate anchors are retained when
+`candidate_score > min_candidate_score`, where
+`candidate_score = q_alpha_prime + r_alpha_prime - edit_distance`.
+`-mcs/--min-candidate-score` defaults to -10. `-pm/--primary-margin` controls
+the score margin required to call a unique primary assignment and defaults to
+5.
 
 For each selected anchor, ValleScope2 extracts its sequence from the normalized
 GenMap input FASTA and defines a strand-invariant canonical sequence as the
@@ -76,6 +84,8 @@ Each anchor context extends `-cr/--context-radius-tokens` tokens to either side
 (default 50, for at most 101 tokens). Sample-specific token-level minimal unique
 substrings are counted only when fully contained in the context. Substrings
 and whole contexts are canonicalized against their reversed token order.
+`anchor_contexts.tsv` also includes `forward_context_tokens`, which preserves
+the observed token order for strand-invariant edit-distance assignment.
 
 Window scores are not written by `--debug` because the file can be larger than
 the genome. Use `--dump-window-scores` only when the full TSV is needed.

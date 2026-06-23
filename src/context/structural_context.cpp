@@ -156,6 +156,18 @@ std::string join_tokens(const std::vector<TokenId>& tokens,
     return text;
 }
 
+std::string join_token_range(const ContigTokens& contig,
+                             const Corpus& corpus,
+                             const std::uint32_t begin,
+                             const std::uint32_t end) {
+    std::string text;
+    for (std::uint32_t index = begin; index < end; ++index) {
+        if (!text.empty()) text += '|';
+        text += corpus.token_labels.at(contig.tokens.at(index));
+    }
+    return text;
+}
+
 std::string stable_serialization(const std::vector<TokenId>& tokens,
                                  const Corpus& corpus) {
     std::string result;
@@ -563,7 +575,7 @@ StructuralContextResult build_structural_contexts(
     if (!anchors) throw std::runtime_error("cannot create anchor context output");
     anchors << "anchor_id\tsequence_id\tsample\tcenter_token_index"
                "\tcontext_start_token\tcontext_end_token\tcontext_length"
-               "\tcanonical_context_key";
+               "\tcanonical_context_key\tforward_context_tokens";
     for (const auto& sample : corpus.samples) anchors << '\t' << sample << "_alpha_prime";
     anchors << '\n';
 
@@ -588,7 +600,8 @@ StructuralContextResult build_structural_contexts(
             anchors << anchor.anchor_id << '\t' << contig.sequence_id << '\t'
                     << corpus.samples[contig.sample_id] << '\t'
                     << anchor.token_position << '\t' << begin << '\t' << end
-                    << '\t' << end - begin << '\t' << key;
+                    << '\t' << end - begin << '\t' << key << '\t'
+                    << join_token_range(contig, corpus, begin, end);
             for (const auto value : anchor.alpha_prime) anchors << '\t' << value;
             anchors << '\n';
             ++result.anchor_count;

@@ -26,6 +26,9 @@ void print_usage(std::ostream& output) {
            << "  -td, --target-density INT  Target anchors per Mb [6000]\n"
            << "  -db, --distance-bin-size INT  Distance token bin size [10]\n"
            << "  -cr, --context-radius-tokens INT  Context radius in tokens [50]\n"
+           << "  -bt, --beta-tolerance INT  Legacy context ED tolerance [30]\n"
+           << "  -mcs, --min-candidate-score INT  Minimum candidate score [-10]\n"
+           << "  -pm, --primary-margin INT  Primary assignment score margin [5]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
            << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
@@ -46,6 +49,22 @@ std::uint32_t parse_unsigned(const int argc, char* argv[], int& index,
             throw std::out_of_range("invalid integer");
         }
         return static_cast<std::uint32_t>(number);
+    } catch (const std::exception&) {
+        throw std::runtime_error("invalid value for " + option + ": " + value);
+    }
+}
+
+std::int64_t parse_signed(const int argc, char* argv[], int& index,
+                          const std::string& option) {
+    if (++index >= argc) throw std::runtime_error(option + " requires an integer value");
+    const std::string value = argv[index];
+    try {
+        std::size_t parsed = 0;
+        const long long number = std::stoll(value, &parsed);
+        if (value.empty() || parsed != value.size()) {
+            throw std::out_of_range("invalid integer");
+        }
+        return static_cast<std::int64_t>(number);
     } catch (const std::exception&) {
         throw std::runtime_error("invalid value for " + option + ": " + value);
     }
@@ -77,6 +96,13 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
             options.distance_bin_size = parse_unsigned(argc, argv, index, argument);
         else if (argument == "-cr" || argument == "--context-radius-tokens")
             options.context_radius_tokens = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-bt" || argument == "--beta-tolerance")
+            options.assignment.beta_tolerance = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "-mcs" || argument == "--min-candidate-score")
+            options.assignment.min_candidate_score =
+                parse_signed(argc, argv, index, argument);
+        else if (argument == "-pm" || argument == "--primary-margin")
+            options.assignment.primary_margin = parse_unsigned(argc, argv, index, argument);
         else if (argument == "-t" || argument == "--threads")
             options.genmap.threads = parse_unsigned(argc, argv, index, argument);
         else if (argument == "--genmap") {
@@ -106,6 +132,10 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
     if (options.context_radius_tokens >
         (std::numeric_limits<std::uint32_t>::max() - 1) / 2) {
         throw std::runtime_error("context radius is too large");
+    }
+    if (options.assignment.beta_tolerance ==
+        std::numeric_limits<std::uint32_t>::max()) {
+        throw std::runtime_error("beta tolerance is too large");
     }
     if (options.anchor_length < options.genmap.kmer_length)
         throw std::runtime_error("anchor length must be greater than or equal to k-mer length");

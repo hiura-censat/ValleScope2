@@ -1,6 +1,7 @@
 # Local dependencies and build files
 .tools/
 build/
+Testing/
 
 # Large input data
 data/
@@ -17,6 +18,8 @@ anchor_contexts.tsv
 context_groups.tsv
 tmus.tsv
 structural_contexts.meta.json
+assignments.tsv
+assignments.meta.json
 genmap.log
 window_scores.tsv
 

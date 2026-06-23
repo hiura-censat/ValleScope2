@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vallescope2/anchor/genmap_runner.hpp"
+#include "vallescope2/correspondence/assignment.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -17,6 +18,7 @@ struct ProgramOptions {
     std::uint32_t target_density = 6000;
     std::uint32_t distance_bin_size = 10;
     std::uint32_t context_radius_tokens = 50;
+    AssignmentParameters assignment;
     GenmapParameters genmap;
     std::vector<std::filesystem::path> input_paths;
 };
