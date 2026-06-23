@@ -70,10 +70,10 @@ Groupable anchors are converted into an alternating structural token stream.
 Anchor tokens are written as `A:<anchor_group_id>`. The center-to-center
 distance between adjacent groupable anchors is divided into floor-based bins
 and written as `D:<bin>`. The bin size is controlled by
-`-db/--distance-bin-size` and defaults to 50 bp.
+`-db/--distance-bin-size` and defaults to 10 bp.
 
 Each anchor context extends `-cr/--context-radius-tokens` tokens to either side
-(default 25, for at most 51 tokens). Sample-specific token-level minimal unique
+(default 50, for at most 101 tokens). Sample-specific token-level minimal unique
 substrings are counted only when fully contained in the context. Substrings
 and whole contexts are canonicalized against their reversed token order.
 
