@@ -110,6 +110,9 @@ void run_anchor_detection(const ProgramOptions& options) {
         current / "structural_contexts.meta.json";
     const auto assignments = current / "assignments.tsv";
     const auto assignment_metadata = current / "assignments.meta.json";
+    const auto correspondences = current / "anchor_correspondences.tsv";
+    const auto correspondence_metadata =
+        current / "anchor_correspondences.meta.json";
     write_anchor_bed(anchor_bed, selection.anchors, genmap.catalog);
 
     const auto context_index = workspace.path() / "context_input.fa.fai";
@@ -130,7 +133,8 @@ void run_anchor_detection(const ProgramOptions& options) {
     const auto assignment_start = std::chrono::steady_clock::now();
     const auto assignment = assign_context_correspondences(
         grouped_anchors, anchor_contexts, prepared.sequence_table, assignments,
-        assignment_metadata, options.assignment);
+        correspondences, correspondence_metadata, assignment_metadata,
+        options.assignment);
     const std::chrono::duration<double> assignment_time =
         std::chrono::steady_clock::now() - assignment_start;
     write_anchor_metadata(
@@ -175,11 +179,21 @@ void run_anchor_detection(const ProgramOptions& options) {
               << context_time.count() << " s.\n"
               << "Assignments: " << assignments << '\n'
               << "Assignment metadata: " << assignment_metadata << '\n'
+              << "Anchor correspondences: " << correspondences << '\n'
+              << "Anchor correspondence metadata: " << correspondence_metadata
+              << '\n'
               << "Assigned " << assignment.primary_count << " primary, "
               << assignment.ambiguous_query_count << " ambiguous query, and "
               << assignment.unmatched_count << " unmatched query anchor(s) across "
               << assignment.ordered_pair_count << " ordered pair(s) in "
-              << assignment_time.count() << " s.\n"
+              << assignment_time.count() << " s; merged "
+              << assignment.correspondence_count
+              << " anchor correspondence(s) using "
+              << (options.assignment.pair_merge_mode ==
+                          PairMergeMode::reciprocal
+                      ? "reciprocal"
+                      : "union")
+              << " mode.\n"
               << "GenMap log: " << genmap_log << '\n';
 }
 

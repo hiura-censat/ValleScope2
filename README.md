@@ -38,6 +38,7 @@ build/vallescope2 -t 8 --debug genome.fa
 build/vallescope2 -db 10 --debug genome.fa
 build/vallescope2 -cr 50 --debug genome.fa
 build/vallescope2 -mcs -10 -pm 5 --debug genome.fa
+build/vallescope2 --pair-merge-mode union --debug genome.fa
 ```
 
 `-t/--threads` controls the number of threads passed to GenMap (`-T`); the
@@ -65,7 +66,9 @@ The context-based correspondence phase writes `assignments.tsv` and
 `candidate_score = q_alpha_prime + r_alpha_prime - edit_distance`.
 `-mcs/--min-candidate-score` defaults to -10. `-pm/--primary-margin` controls
 the score margin required to call a unique primary assignment and defaults to
-5.
+5. Primary directed assignments are merged per sample pair into
+`anchor_correspondences.tsv`; `--pair-merge-mode` can be `union` or
+`reciprocal` and defaults to `union`.
 
 For each selected anchor, ValleScope2 extracts its sequence from the normalized
 GenMap input FASTA and defines a strand-invariant canonical sequence as the

@@ -43,6 +43,9 @@ int main() {
         const auto assignment_contexts = directory / "assignment_contexts.tsv";
         const auto assignments = directory / "assignments.tsv";
         const auto assignment_metadata = directory / "assignments.meta.json";
+        const auto correspondences = directory / "anchor_correspondences.tsv";
+        const auto correspondence_metadata =
+            directory / "anchor_correspondences.meta.json";
         {
             std::ofstream output(fasta);
             output << ">chr1\nACGTACGTNNACGT\n";
@@ -196,7 +199,8 @@ int main() {
         const auto assignment_result =
             vallescope2::assign_context_correspondences(
                 assignment_grouped, assignment_contexts, sequence_table,
-                assignments, assignment_metadata, {2, 5});
+                assignments, correspondences, correspondence_metadata,
+                assignment_metadata, {2, 5});
         require(assignment_result.ordered_pair_count == 2,
                 "unexpected ordered pair count");
         require(assignment_result.exact_context_primary_count >= 1,
@@ -230,6 +234,14 @@ int main() {
                     "sampleA\tsampleB\tq4\t.\tunmatched\tunmatched"
                 ) != std::string::npos,
                 "unmatched row is incorrect");
+        std::ifstream correspondence_stream(correspondences);
+        const std::string correspondence_contents(
+            (std::istreambuf_iterator<char>(correspondence_stream)),
+            std::istreambuf_iterator<char>());
+        require(correspondence_contents.find(
+                    "sampleA\tsampleB\tt1\tq1\tboth"
+                ) != std::string::npos,
+                "reciprocal correspondence is missing");
 
         std::filesystem::remove_all(directory);
         return 0;
