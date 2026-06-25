@@ -1,3 +1,4 @@
+#include "vallescope2/alignment/base_alignment.hpp"
 #include "vallescope2/anchor/anchor_detection.hpp"
 
 #include "vallescope2/anchor/anchor_output.hpp"
@@ -120,6 +121,9 @@ void run_anchor_detection(const ProgramOptions& options) {
     const auto refined_chains = current / "refined_chains.tsv";
     const auto refined_chain_anchors = current / "refined_chain_anchors.tsv";
     const auto refined_chain_metadata = current / "refined_chains.meta.json";
+    const auto bundle_alignments = current / "bundle_alignments.paf";
+    const auto bundle_alignment_metadata =
+        current / "bundle_alignments.meta.json";
     write_anchor_bed(anchor_bed, selection.anchors, genmap.catalog);
 
     const auto context_index = workspace.path() / "context_input.fa.fai";
@@ -151,6 +155,17 @@ void run_anchor_detection(const ProgramOptions& options) {
         refined_chain_metadata, options.chaining);
     const std::chrono::duration<double> chaining_time =
         std::chrono::steady_clock::now() - chaining_start;
+    BaseAlignmentResult base_alignment;
+    std::chrono::duration<double> base_alignment_time{0};
+    if (options.base_align) {
+        const auto base_alignment_start = std::chrono::steady_clock::now();
+        base_alignment = align_chain_bundles(
+            chains, genmap.input_fasta, context_index, bundle_alignments,
+            bundle_alignment_metadata,
+            {options.anchor_length, options.max_bundle_align_bp});
+        base_alignment_time =
+            std::chrono::steady_clock::now() - base_alignment_start;
+    }
     write_anchor_metadata(
         anchor_metadata,
         {options.anchor_length, options.min_center_distance, options.target_density,
@@ -219,7 +234,18 @@ void run_anchor_detection(const ProgramOptions& options) {
               << chaining.chain_anchor_count << " chained anchor pair(s); refined "
               << chaining.refined_chain_count << " chain(s), using "
               << chaining.refined_chain_anchor_count << " anchor pair(s) in "
-              << chaining_time.count() << " s.\n"
+              << chaining_time.count() << " s.\n";
+    if (options.base_align) {
+        std::cerr << "Bundle alignments: " << bundle_alignments << '\n'
+                  << "Bundle alignment metadata: "
+                  << bundle_alignment_metadata << '\n'
+                  << "Base-aligned " << base_alignment.aligned_bundle_count
+                  << " of " << base_alignment.bundle_count
+                  << " bundle(s); skipped "
+                  << base_alignment.skipped_bundle_count << " in "
+                  << base_alignment_time.count() << " s.\n";
+    }
+    std::cerr
               << "GenMap log: " << genmap_log << '\n';
 }
 

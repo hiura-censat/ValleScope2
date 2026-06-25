@@ -6,6 +6,8 @@ include(CTest)
 
 find_package(OpenSSL REQUIRED)
 
+add_subdirectory(external/WFA2-lib EXCLUDE_FROM_ALL)
+
 set(HTSLIB_ROOT "" CACHE PATH "Root directory of the HTSlib installation")
 find_path(HTSLIB_INCLUDE_DIR
     NAMES htslib/faidx.h
@@ -27,6 +29,7 @@ set_target_properties(HTSlib::HTSlib PROPERTIES
 )
 
 add_executable(vallescope2
+    src/alignment/base_alignment.cpp
     src/anchor/anchor_detection.cpp
     src/anchor/anchor_output.cpp
     src/anchor/anchor_selection.cpp
@@ -48,19 +51,22 @@ add_executable(vallescope2
     src/input/sequence_catalog.cpp
 )
 
-target_include_directories(vallescope2 PRIVATE include)
+target_include_directories(vallescope2 PRIVATE include external/WFA2-lib)
 target_compile_features(vallescope2 PRIVATE cxx_std_17)
 target_compile_options(vallescope2 PRIVATE -Wall -Wextra -Wpedantic)
 target_compile_definitions(vallescope2 PRIVATE
     VALLESCOPE2_VERSION="${PROJECT_VERSION}"
 )
-target_link_libraries(vallescope2 PRIVATE HTSlib::HTSlib OpenSSL::Crypto)
+target_link_libraries(vallescope2 PRIVATE
+    HTSlib::HTSlib OpenSSL::Crypto wfa2::wfa2cpp_static
+)
 
 install(TARGETS vallescope2 RUNTIME DESTINATION bin)
 
 if(BUILD_TESTING)
     add_executable(anchor_grouping_test
         test/anchor_grouping_test.cpp
+        src/alignment/base_alignment.cpp
         src/bundle/chaining.cpp
         src/common/sha256.cpp
         src/context/anchor_grouping.cpp
@@ -69,11 +75,11 @@ if(BUILD_TESTING)
         src/correspondence/assignment.cpp
         src/input/fasta_index.cpp
     )
-    target_include_directories(anchor_grouping_test PRIVATE include)
+    target_include_directories(anchor_grouping_test PRIVATE include external/WFA2-lib)
     target_compile_features(anchor_grouping_test PRIVATE cxx_std_17)
     target_compile_options(anchor_grouping_test PRIVATE -Wall -Wextra -Wpedantic)
     target_link_libraries(anchor_grouping_test PRIVATE
-        HTSlib::HTSlib OpenSSL::Crypto
+        HTSlib::HTSlib OpenSSL::Crypto wfa2::wfa2cpp_static
     )
     add_test(NAME anchor-grouping COMMAND anchor_grouping_test)
 endif()

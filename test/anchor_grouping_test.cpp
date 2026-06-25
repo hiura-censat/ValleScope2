@@ -1,3 +1,4 @@
+#include "vallescope2/alignment/base_alignment.hpp"
 #include "vallescope2/context/anchor_grouping.hpp"
 #include "vallescope2/context/structural_tokens.hpp"
 #include "vallescope2/context/structural_context.hpp"
@@ -53,6 +54,10 @@ int main() {
         const auto refined_chains = directory / "refined_chains.tsv";
         const auto refined_chain_anchors = directory / "refined_chain_anchors.tsv";
         const auto refined_chain_metadata = directory / "refined_chains.meta.json";
+        const auto bundle_paf = directory / "bundle_alignments.paf";
+        const auto bundle_alignment_metadata =
+            directory / "bundle_alignments.meta.json";
+        const auto base_chains = directory / "base_chains.tsv";
         {
             std::ofstream output(fasta);
             output << ">chr1\nACGTACGTNNACGT\n";
@@ -263,6 +268,24 @@ int main() {
             std::istreambuf_iterator<char>());
         require(chain_anchor_contents.find("t1\tq1") != std::string::npos,
                 "expected chained anchor pair is missing");
+        {
+            std::ofstream output(base_chains);
+            output << "chain_id\tsample_a\tsample_b\tsequence_a\tsequence_b"
+                      "\tassign_strand\tn_candidates\tchain_score"
+                      "\tref_start\tref_end\tquery_start\tquery_end\n"
+                   << "0\tsampleA\tsampleB\tchr1\tchr1\t+\t1\t1\t0\t6\t0\t6\n";
+        }
+        const auto base_alignment_result = vallescope2::align_chain_bundles(
+            base_chains, fasta, index, bundle_paf, bundle_alignment_metadata,
+            {6, 1000, 1000000});
+        require(base_alignment_result.aligned_bundle_count >= 1,
+                "bundle base alignment was not produced");
+        std::ifstream bundle_paf_stream(bundle_paf);
+        const std::string bundle_paf_contents(
+            (std::istreambuf_iterator<char>(bundle_paf_stream)),
+            std::istreambuf_iterator<char>());
+        require(bundle_paf_contents.find("cg:Z:") != std::string::npos,
+                "bundle PAF is missing cg:Z CIGAR");
 
         std::filesystem::remove_all(directory);
         return 0;

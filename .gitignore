@@ -28,6 +28,8 @@ chains.meta.json
 refined_chains.tsv
 refined_chain_anchors.tsv
 refined_chains.meta.json
+bundle_alignments.paf
+bundle_alignments.meta.json
 genmap.log
 window_scores.tsv
 

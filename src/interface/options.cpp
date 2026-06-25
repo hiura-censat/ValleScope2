@@ -36,6 +36,8 @@ void print_usage(std::ostream& output) {
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
            << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
+           << "  --base-align  Globally align each first-pass chain interval and write PAF with cg:Z\n"
+           << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [50000]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
            << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
@@ -113,6 +115,7 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         const std::string argument = argv[index];
         if (argument == "--combine") options.combine = true;
         else if (argument == "--debug") options.debug = true;
+        else if (argument == "--base-align") options.base_align = true;
         else if (argument == "--dump-window-scores") options.dump_window_scores = true;
         else if (argument == "-K" || argument == "--kmer-length")
             options.genmap.kmer_length = parse_unsigned(argc, argv, index, argument);
@@ -156,6 +159,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--refinement-min-chain-anchors")
             options.chaining.refinement_min_chain_anchors =
                 parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--max-bundle-align-bp")
+            options.max_bundle_align_bp =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "-t" || argument == "--threads")
             options.genmap.threads = parse_unsigned(argc, argv, index, argument);
         else if (argument == "--genmap") {
@@ -191,6 +197,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("minimum chain anchor count must be greater than zero");
     if (options.chaining.refinement_min_chain_anchors == 0)
         throw std::runtime_error("minimum refinement chain anchor count must be greater than zero");
+    if (options.max_bundle_align_bp == 0)
+        throw std::runtime_error("maximum bundle alignment length must be greater than zero");
     if (options.context_radius_tokens >
         (std::numeric_limits<std::uint32_t>::max() - 1) / 2) {
         throw std::runtime_error("context radius is too large");

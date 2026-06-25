@@ -42,6 +42,7 @@ build/vallescope2 --pair-merge-mode union --debug genome.fa
 build/vallescope2 --chain-predecessors 50 --gap-weight 1 --debug genome.fa
 build/vallescope2 --min-chain-anchors 10 --min-chain-score 0 --debug genome.fa
 build/vallescope2 --refinement-window 50000 --refinement-min-chain-anchors 5 --debug genome.fa
+build/vallescope2 --base-align --max-bundle-align-bp 50000 --debug genome.fa
 ```
 
 `-t/--threads` controls the number of threads passed to GenMap (`-T`); the
@@ -86,6 +87,14 @@ writes `refined_chains.tsv`, `refined_chain_anchors.tsv`, and
 `refined_chains.meta.json`; `--refinement-window` controls the around-chain
 extension and defaults to 50000 bp. `--refinement-min-chain-anchors` controls
 the minimum refined chain length and defaults to 5 anchors.
+
+With `--base-align`, ValleScope2 extracts each first-pass chain interval from
+the GenMap input FASTA, reverse-complements the query interval for `-` strand
+chains, globally aligns the whole bundle interval, and writes
+`bundle_alignments.paf` with a `cg:Z:` CIGAR tag plus
+`bundle_alignments.meta.json`. The current build uses an internal global
+alignment fallback unless WFA2 headers are available; `--max-bundle-align-bp`
+skips very large bundle intervals and defaults to 50000 bp.
 
 For each selected anchor, ValleScope2 extracts its sequence from the normalized
 GenMap input FASTA and defines a strand-invariant canonical sequence as the
