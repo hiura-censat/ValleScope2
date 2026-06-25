@@ -39,6 +39,9 @@ build/vallescope2 -db 10 --debug genome.fa
 build/vallescope2 -cr 50 --debug genome.fa
 build/vallescope2 -mcs -10 -pm 5 --debug genome.fa
 build/vallescope2 --pair-merge-mode union --debug genome.fa
+build/vallescope2 --chain-predecessors 50 --gap-weight 1 --debug genome.fa
+build/vallescope2 --min-chain-anchors 10 --min-chain-score 0 --debug genome.fa
+build/vallescope2 --refinement-window 50000 --refinement-min-chain-anchors 5 --debug genome.fa
 ```
 
 `-t/--threads` controls the number of threads passed to GenMap (`-T`); the
@@ -69,6 +72,20 @@ the score margin required to call a unique primary assignment and defaults to
 5. Primary directed assignments are merged per sample pair into
 `anchor_correspondences.tsv`; `--pair-merge-mode` can be `union` or
 `reciprocal` and defaults to `union`.
+The bundle-chaining phase uses `anchor_correspondences.tsv` and writes
+`chains.tsv`, `chain_anchors.tsv`, and `chains.meta.json`. Each sample pair and
+assignment strand emits one or more DP chains. The predecessor search limit
+defaults to 50 and is controlled by `--chain-predecessors`; the gap penalty
+weight defaults to 1 and is controlled by `--gap-weight`. Chains are
+iteratively extracted after removing used candidates; `--min-chain-anchors`
+and `--min-chain-score` control when extraction stops. The minimum first-pass
+chain length defaults to 10 anchors. Unused correspondence candidates plus
+primary and ambiguous rows from `assignments.tsv` are then re-chained around
+first-pass chains and between adjacent first-pass chains. This refinement
+writes `refined_chains.tsv`, `refined_chain_anchors.tsv`, and
+`refined_chains.meta.json`; `--refinement-window` controls the around-chain
+extension and defaults to 50000 bp. `--refinement-min-chain-anchors` controls
+the minimum refined chain length and defaults to 5 anchors.
 
 For each selected anchor, ValleScope2 extracts its sequence from the normalized
 GenMap input FASTA and defines a strand-invariant canonical sequence as the

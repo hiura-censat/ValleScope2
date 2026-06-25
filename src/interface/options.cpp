@@ -30,6 +30,12 @@ void print_usage(std::ostream& output) {
            << "  -mcs, --min-candidate-score INT  Minimum candidate score [-10]\n"
            << "  -pm, --primary-margin INT  Primary assignment score margin [5]\n"
            << "  --pair-merge-mode MODE  reciprocal or union [union]\n"
+           << "  --chain-predecessors INT  Chaining predecessor search limit [50]\n"
+           << "  --gap-weight FLOAT  Chaining gap weight [1]\n"
+           << "  --min-chain-anchors INT  Minimum anchors per emitted chain [10]\n"
+           << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
+           << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
+           << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
            << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
@@ -80,6 +86,22 @@ PairMergeMode parse_pair_merge_mode(const int argc, char* argv[], int& index,
     throw std::runtime_error("invalid value for " + option + ": " + value);
 }
 
+double parse_double(const int argc, char* argv[], int& index,
+                    const std::string& option) {
+    if (++index >= argc) throw std::runtime_error(option + " requires a value");
+    const std::string value = argv[index];
+    try {
+        std::size_t parsed = 0;
+        const double number = std::stod(value, &parsed);
+        if (value.empty() || parsed != value.size()) {
+            throw std::out_of_range("invalid number");
+        }
+        return number;
+    } catch (const std::exception&) {
+        throw std::runtime_error("invalid value for " + option + ": " + value);
+    }
+}
+
 }  // namespace
 
 ProgramOptions parse_arguments(const int argc, char* argv[]) {
@@ -116,6 +138,24 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--pair-merge-mode")
             options.assignment.pair_merge_mode =
                 parse_pair_merge_mode(argc, argv, index, argument);
+        else if (argument == "--chain-predecessors")
+            options.chaining.predecessor_count =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--gap-weight")
+            options.chaining.gap_weight =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--min-chain-anchors")
+            options.chaining.min_chain_anchors =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-chain-score")
+            options.chaining.min_chain_score =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--refinement-window")
+            options.chaining.refinement_window =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--refinement-min-chain-anchors")
+            options.chaining.refinement_min_chain_anchors =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "-t" || argument == "--threads")
             options.genmap.threads = parse_unsigned(argc, argv, index, argument);
         else if (argument == "--genmap") {
@@ -142,6 +182,15 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("thread count must be greater than zero");
     if (options.distance_bin_size == 0)
         throw std::runtime_error("distance bin size must be greater than zero");
+    options.chaining.gap_unit = options.distance_bin_size;
+    if (options.chaining.predecessor_count == 0)
+        throw std::runtime_error("chain predecessor count must be greater than zero");
+    if (options.chaining.gap_weight < 0.0)
+        throw std::runtime_error("gap weight must be non-negative");
+    if (options.chaining.min_chain_anchors == 0)
+        throw std::runtime_error("minimum chain anchor count must be greater than zero");
+    if (options.chaining.refinement_min_chain_anchors == 0)
+        throw std::runtime_error("minimum refinement chain anchor count must be greater than zero");
     if (options.context_radius_tokens >
         (std::numeric_limits<std::uint32_t>::max() - 1) / 2) {
         throw std::runtime_error("context radius is too large");

@@ -22,6 +22,12 @@ assignments.tsv
 assignments.meta.json
 anchor_correspondences.tsv
 anchor_correspondences.meta.json
+chains.tsv
+chain_anchors.tsv
+chains.meta.json
+refined_chains.tsv
+refined_chain_anchors.tsv
+refined_chains.meta.json
 genmap.log
 window_scores.tsv
 

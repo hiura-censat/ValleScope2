@@ -2,6 +2,7 @@
 #include "vallescope2/context/structural_tokens.hpp"
 #include "vallescope2/context/structural_context.hpp"
 #include "vallescope2/correspondence/assignment.hpp"
+#include "vallescope2/bundle/chaining.hpp"
 #include "vallescope2/fasta_index.hpp"
 
 #include <chrono>
@@ -46,6 +47,12 @@ int main() {
         const auto correspondences = directory / "anchor_correspondences.tsv";
         const auto correspondence_metadata =
             directory / "anchor_correspondences.meta.json";
+        const auto chains = directory / "chains.tsv";
+        const auto chain_anchors = directory / "chain_anchors.tsv";
+        const auto chain_metadata = directory / "chains.meta.json";
+        const auto refined_chains = directory / "refined_chains.tsv";
+        const auto refined_chain_anchors = directory / "refined_chain_anchors.tsv";
+        const auto refined_chain_metadata = directory / "refined_chains.meta.json";
         {
             std::ofstream output(fasta);
             output << ">chr1\nACGTACGTNNACGT\n";
@@ -242,6 +249,20 @@ int main() {
                     "sampleA\tsampleB\tt1\tq1\tboth"
                 ) != std::string::npos,
                 "reciprocal correspondence is missing");
+        const auto chaining_result = vallescope2::build_anchor_chains(
+            correspondences, assignments, assignment_grouped, chains, chain_anchors,
+            chain_metadata, refined_chains, refined_chain_anchors,
+            refined_chain_metadata, {2, 1.0, 50, 1, 0.0, 50000, 1});
+        require(chaining_result.candidate_count >= 1,
+                "chain candidates were not loaded");
+        require(chaining_result.chain_count >= 1,
+                "chain was not constructed");
+        std::ifstream chain_anchor_stream(chain_anchors);
+        const std::string chain_anchor_contents(
+            (std::istreambuf_iterator<char>(chain_anchor_stream)),
+            std::istreambuf_iterator<char>());
+        require(chain_anchor_contents.find("t1\tq1") != std::string::npos,
+                "expected chained anchor pair is missing");
 
         std::filesystem::remove_all(directory);
         return 0;

@@ -32,6 +32,7 @@ add_executable(vallescope2
     src/anchor/anchor_selection.cpp
     src/anchor/genmap_runner.cpp
     src/anchor/window_scoring.cpp
+    src/bundle/chaining.cpp
     src/common/process.cpp
     src/common/sha256.cpp
     src/common/workspace.cpp
@@ -60,6 +61,7 @@ install(TARGETS vallescope2 RUNTIME DESTINATION bin)
 if(BUILD_TESTING)
     add_executable(anchor_grouping_test
         test/anchor_grouping_test.cpp
+        src/bundle/chaining.cpp
         src/common/sha256.cpp
         src/context/anchor_grouping.cpp
         src/context/structural_tokens.cpp

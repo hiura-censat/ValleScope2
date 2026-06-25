@@ -3,6 +3,7 @@
 #include "vallescope2/anchor/anchor_output.hpp"
 #include "vallescope2/anchor/anchor_selection.hpp"
 #include "vallescope2/anchor/window_scoring.hpp"
+#include "vallescope2/bundle/chaining.hpp"
 #include "vallescope2/common/workspace.hpp"
 #include "vallescope2/context/anchor_grouping.hpp"
 #include "vallescope2/context/structural_tokens.hpp"
@@ -113,6 +114,12 @@ void run_anchor_detection(const ProgramOptions& options) {
     const auto correspondences = current / "anchor_correspondences.tsv";
     const auto correspondence_metadata =
         current / "anchor_correspondences.meta.json";
+    const auto chains = current / "chains.tsv";
+    const auto chain_anchors = current / "chain_anchors.tsv";
+    const auto chain_metadata = current / "chains.meta.json";
+    const auto refined_chains = current / "refined_chains.tsv";
+    const auto refined_chain_anchors = current / "refined_chain_anchors.tsv";
+    const auto refined_chain_metadata = current / "refined_chains.meta.json";
     write_anchor_bed(anchor_bed, selection.anchors, genmap.catalog);
 
     const auto context_index = workspace.path() / "context_input.fa.fai";
@@ -137,6 +144,13 @@ void run_anchor_detection(const ProgramOptions& options) {
         options.assignment);
     const std::chrono::duration<double> assignment_time =
         std::chrono::steady_clock::now() - assignment_start;
+    const auto chaining_start = std::chrono::steady_clock::now();
+    const auto chaining = build_anchor_chains(
+        correspondences, assignments, grouped_anchors, chains, chain_anchors,
+        chain_metadata, refined_chains, refined_chain_anchors,
+        refined_chain_metadata, options.chaining);
+    const std::chrono::duration<double> chaining_time =
+        std::chrono::steady_clock::now() - chaining_start;
     write_anchor_metadata(
         anchor_metadata,
         {options.anchor_length, options.min_center_distance, options.target_density,
@@ -194,6 +208,18 @@ void run_anchor_detection(const ProgramOptions& options) {
                       ? "reciprocal"
                       : "union")
               << " mode.\n"
+              << "Chains: " << chains << '\n'
+              << "Chain anchors: " << chain_anchors << '\n'
+              << "Chain metadata: " << chain_metadata << '\n'
+              << "Refined chains: " << refined_chains << '\n'
+              << "Refined chain anchors: " << refined_chain_anchors << '\n'
+              << "Refined chain metadata: " << refined_chain_metadata << '\n'
+              << "Built " << chaining.chain_count << " top chain(s) from "
+              << chaining.candidate_count << " correspondence candidate(s), using "
+              << chaining.chain_anchor_count << " chained anchor pair(s); refined "
+              << chaining.refined_chain_count << " chain(s), using "
+              << chaining.refined_chain_anchor_count << " anchor pair(s) in "
+              << chaining_time.count() << " s.\n"
               << "GenMap log: " << genmap_log << '\n';
 }
 
