@@ -43,6 +43,11 @@ add_executable(vallescope2
     src/context/structural_tokens.cpp
     src/context/structural_context.cpp
     src/correspondence/assignment.cpp
+    src/correspondence/assignment_common.cpp
+    src/correspondence/assignment_loader.cpp
+    src/correspondence/assignment_matching.cpp
+    src/correspondence/assignment_merge.cpp
+    src/correspondence/assignment_output.cpp
     src/interface/main.cpp
     src/interface/options.cpp
     src/input/fasta.cpp
@@ -73,6 +78,11 @@ if(BUILD_TESTING)
         src/context/structural_tokens.cpp
         src/context/structural_context.cpp
         src/correspondence/assignment.cpp
+        src/correspondence/assignment_common.cpp
+        src/correspondence/assignment_loader.cpp
+        src/correspondence/assignment_matching.cpp
+        src/correspondence/assignment_merge.cpp
+        src/correspondence/assignment_output.cpp
         src/input/fasta_index.cpp
     )
     target_include_directories(anchor_grouping_test PRIVATE include external/WFA2-lib)
