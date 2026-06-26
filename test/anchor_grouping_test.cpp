@@ -160,7 +160,7 @@ int main() {
             std::istreambuf_iterator<char>());
         require(anchor_context_contents.find(
                     "canonical_context_key\tforward_context_tokens\t"
-                    "sample1_alpha_prime") != std::string::npos,
+                    "tmus_keys\tsample1_alpha_prime") != std::string::npos,
                 "forward_context_tokens header is missing");
         const auto b1 = anchor_context_contents.find("b1\ts2seq\tsample2\t0\t0\t3\t3\t");
         require(b1 != std::string::npos, "sample2 context missing");
@@ -206,11 +206,14 @@ int main() {
                    << "seqA\tsampleA\t1\tseqA\ta.fa\t1000\tself\n"
                    << "seqB\tsampleB\t1\tseqB\tb.fa\t1000\tself\n";
         }
+        vallescope2::AssignmentParameters assignment_parameters;
+        assignment_parameters.beta_tolerance = 2;
+        assignment_parameters.primary_margin = 5;
         const auto assignment_result =
             vallescope2::assign_context_correspondences(
                 assignment_grouped, assignment_contexts, sequence_table,
                 assignments, correspondences, correspondence_metadata,
-                assignment_metadata, {2, 5});
+                assignment_metadata, assignment_parameters);
         require(assignment_result.ordered_pair_count == 2,
                 "unexpected ordered pair count");
         require(assignment_result.exact_context_primary_count >= 1,

@@ -12,6 +12,7 @@ enum class PairMergeMode {
 
 struct AssignmentParameters {
     std::uint32_t beta_tolerance = 30;
+    std::uint32_t min_shared_tmus = 3;
     std::int64_t primary_margin = 5;
     std::int64_t min_candidate_score = -10;
     PairMergeMode pair_merge_mode = PairMergeMode::union_mode;
@@ -25,6 +26,8 @@ struct AssignmentResult {
     std::uint64_t ambiguous_row_count = 0;
     std::uint64_t unmatched_count = 0;
     std::uint64_t exact_context_primary_count = 0;
+    std::uint64_t shared_tmus_primary_count = 0;
+    std::uint64_t shared_tmus_tie_fallback_count = 0;
     std::uint64_t edit_distance_primary_count = 0;
     std::uint64_t correspondence_count = 0;
     std::uint64_t reciprocal_correspondence_count = 0;

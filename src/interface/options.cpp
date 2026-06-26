@@ -27,6 +27,7 @@ void print_usage(std::ostream& output) {
            << "  -db, --distance-bin-size INT  Distance token bin size [10]\n"
            << "  -cr, --context-radius-tokens INT  Context radius in tokens [50]\n"
            << "  -bt, --beta-tolerance INT  Legacy context ED tolerance [30]\n"
+           << "  --min-shared-tmus INT  Shared exact tMUS fast-path threshold [3]\n"
            << "  -mcs, --min-candidate-score INT  Minimum candidate score [-10]\n"
            << "  -pm, --primary-margin INT  Primary assignment score margin [5]\n"
            << "  --pair-merge-mode MODE  reciprocal or union [union]\n"
@@ -134,6 +135,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
             options.context_radius_tokens = parse_unsigned(argc, argv, index, argument);
         else if (argument == "-bt" || argument == "--beta-tolerance")
             options.assignment.beta_tolerance = parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-shared-tmus")
+            options.assignment.min_shared_tmus =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "-mcs" || argument == "--min-candidate-score")
             options.assignment.min_candidate_score =
                 parse_signed(argc, argv, index, argument);

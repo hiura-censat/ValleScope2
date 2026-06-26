@@ -34,6 +34,7 @@ struct Anchor {
     std::string anchor_group_id;
     std::string context_key;
     std::vector<std::uint32_t> forward_tokens;
+    std::vector<std::string> tmus_keys;
     std::vector<std::uint64_t> alpha_prime;
 };
 
@@ -49,6 +50,7 @@ struct Candidate {
     std::int64_t score = 0;
     std::uint64_t q_alpha_prime = 0;
     std::uint64_t r_alpha_prime = 0;
+    std::uint32_t shared_tmus_count = 0;
 };
 
 struct DirectedPrimary {
@@ -179,6 +181,44 @@ std::vector<std::uint32_t> parse_tokens(DataSet& data, const std::string& text) 
     return tokens;
 }
 
+std::vector<std::string> parse_tmus_keys(const std::string& text) {
+    std::vector<std::string> keys;
+    if (text.empty() || text == ".") return keys;
+    std::size_t begin = 0;
+    while (begin <= text.size()) {
+        const std::size_t separator = text.find(',', begin);
+        const std::string key =
+            separator == std::string::npos
+                ? text.substr(begin)
+                : text.substr(begin, separator - begin);
+        if (!key.empty()) keys.push_back(key);
+        if (separator == std::string::npos) break;
+        begin = separator + 1;
+    }
+    std::sort(keys.begin(), keys.end());
+    keys.erase(std::unique(keys.begin(), keys.end()), keys.end());
+    return keys;
+}
+
+std::uint32_t count_shared_tmus(const std::vector<std::string>& left,
+                                const std::vector<std::string>& right) {
+    std::uint32_t count = 0;
+    auto l = left.begin();
+    auto r = right.begin();
+    while (l != left.end() && r != right.end()) {
+        if (*l == *r) {
+            ++count;
+            ++l;
+            ++r;
+        } else if (*l < *r) {
+            ++l;
+        } else {
+            ++r;
+        }
+    }
+    return count;
+}
+
 void load_sequence_table(const std::filesystem::path& path, DataSet& data) {
     std::ifstream input(path);
     if (!input) throw std::runtime_error("cannot open sequence table: " + path.string());
@@ -223,6 +263,7 @@ DataSet load_assignment_data(const std::filesystem::path& grouped_anchors,
     const auto sample_column = require_column(columns, "sample");
     const auto context_key_column = require_column(columns, "canonical_context_key");
     const auto forward_column = require_column(columns, "forward_context_tokens");
+    const auto tmus_keys_found = columns.find("tmus_keys");
 
     std::vector<std::size_t> alpha_columns;
     for (std::size_t i = 0; i < header.size(); ++i) {
@@ -261,6 +302,11 @@ DataSet load_assignment_data(const std::filesystem::path& grouped_anchors,
         anchor.anchor_group_id = grouped_found->second.anchor_group_id;
         anchor.context_key = fields[context_key_column];
         anchor.forward_tokens = parse_tokens(data, fields[forward_column]);
+        if (tmus_keys_found != columns.end()) {
+            if (fields.size() <= tmus_keys_found->second)
+                throw std::runtime_error("missing tMUS key value");
+            anchor.tmus_keys = parse_tmus_keys(fields[tmus_keys_found->second]);
+        }
         anchor.alpha_prime.reserve(alpha_columns.size());
         for (const auto column : alpha_columns) {
             if (fields.size() <= column) throw std::runtime_error("missing alpha prime value");
@@ -348,7 +394,7 @@ void write_unmatched(std::ofstream& output,
                      const std::string& query_sample,
                      const Anchor& query) {
     output << pair_id << '\t' << target_sample << '\t' << query_sample << '\t'
-           << query.anchor_id << "\t.\tunmatched\tunmatched\t.\t.\t.\t.\t0\t.\t.\t"
+           << query.anchor_id << "\t.\tunmatched\tunmatched\t.\t.\t.\t.\t0\t.\t.\t.\t"
            << query.anchor_group_id << "\t.\t" << query.context_key << "\t.\n";
 }
 
@@ -368,6 +414,7 @@ void write_assignment(std::ofstream& output,
            << candidate.edit_distance << '\t' << candidate.score << '\t'
            << score_margin << '\t' << candidate_count << '\t'
            << candidate.q_alpha_prime << '\t' << candidate.r_alpha_prime << '\t'
+           << candidate.shared_tmus_count << '\t'
            << query.anchor_group_id << '\t' << candidate.target->anchor_group_id
            << '\t' << query.context_key << '\t' << candidate.target->context_key
            << '\n';
@@ -553,6 +600,7 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"legacy_beta_tolerance\": " << parameters.beta_tolerance << ",\n"
            << "  \"candidate_filter\": \"candidate_score > min_candidate_score\",\n"
            << "  \"min_candidate_score\": " << parameters.min_candidate_score << ",\n"
+           << "  \"min_shared_tmus\": " << parameters.min_shared_tmus << ",\n"
            << "  \"pair_merge_mode\": \""
            << pair_merge_mode_name(parameters.pair_merge_mode) << "\",\n"
            << "  \"primary_margin\": " << parameters.primary_margin << ",\n"
@@ -564,6 +612,10 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"unmatched_count\": " << result.unmatched_count << ",\n"
            << "  \"exact_context_primary_count\": "
            << result.exact_context_primary_count << ",\n"
+           << "  \"shared_tmus_primary_count\": "
+           << result.shared_tmus_primary_count << ",\n"
+           << "  \"shared_tmus_tie_fallback_count\": "
+           << result.shared_tmus_tie_fallback_count << ",\n"
            << "  \"edit_distance_primary_count\": "
            << result.edit_distance_primary_count << "\n"
            << "}\n";
@@ -588,7 +640,7 @@ AssignmentResult assign_context_correspondences(
     output << "pair_id\ttarget_sample\tquery_sample\tquery_anchor_id"
               "\ttarget_anchor_id\tstatus\tmethod\tassign_strand"
               "\tedit_distance\tcandidate_score\tscore_margin\tn_candidates"
-              "\tq_alpha_prime\tr_alpha_prime\tquery_anchor_group_id"
+              "\tq_alpha_prime\tr_alpha_prime\tshared_tmus_count\tquery_anchor_group_id"
               "\ttarget_anchor_group_id\tquery_context_key\ttarget_context_key\n";
 
     AssignmentResult result;
@@ -628,6 +680,8 @@ AssignmentResult assign_context_correspondences(
                 candidate.r_alpha_prime = target->alpha_prime[pair.query_sample];
                 candidate.score = static_cast<std::int64_t>(candidate.q_alpha_prime) +
                                   static_cast<std::int64_t>(candidate.r_alpha_prime);
+                candidate.shared_tmus_count =
+                    count_shared_tmus(query.tmus_keys, target->tmus_keys);
                 if (candidate.q_alpha_prime > 0 || candidate.r_alpha_prime > 0) {
                     write_assignment(output, pair_index, target_sample_name,
                                      query_sample_name, query, candidate,
@@ -647,6 +701,50 @@ AssignmentResult assign_context_correspondences(
             const auto q_alpha_prime = query.alpha_prime[pair.target_sample];
             const auto group_found = by_group.find(query.anchor_group_id);
             if (q_alpha_prime > 0 && group_found != by_group.end()) {
+                Candidate best_shared;
+                bool has_shared = false;
+                bool shared_tie = false;
+                for (const auto* target : group_found->second) {
+                    if (target->anchor_id == query.anchor_id) continue;
+                    const auto r_alpha_prime = target->alpha_prime[pair.query_sample];
+                    if (r_alpha_prime == 0) continue;
+                    const auto shared =
+                        count_shared_tmus(query.tmus_keys, target->tmus_keys);
+                    if (shared < parameters.min_shared_tmus) continue;
+                    if (!has_shared || shared > best_shared.shared_tmus_count) {
+                        has_shared = true;
+                        shared_tie = false;
+                        best_shared = Candidate{};
+                        best_shared.target = target;
+                        best_shared.edit_distance = 0;
+                        best_shared.strand = '.';
+                        best_shared.q_alpha_prime = q_alpha_prime;
+                        best_shared.r_alpha_prime = r_alpha_prime;
+                        best_shared.shared_tmus_count = shared;
+                        best_shared.score =
+                            static_cast<std::int64_t>(q_alpha_prime) +
+                            static_cast<std::int64_t>(r_alpha_prime);
+                    } else if (shared == best_shared.shared_tmus_count) {
+                        shared_tie = true;
+                    }
+                }
+                if (has_shared && !shared_tie) {
+                    write_assignment(output, pair_index, target_sample_name,
+                                     query_sample_name, query, best_shared,
+                                     "primary", "shared_tmus", 0, 1);
+                    primaries.push_back(
+                        {pair_index, pair.target_sample, pair.query_sample,
+                         query.anchor_id, best_shared.target->anchor_id,
+                         "shared_tmus", best_shared.strand,
+                         best_shared.edit_distance, best_shared.score});
+                    ++result.primary_count;
+                    ++result.shared_tmus_primary_count;
+                    continue;
+                }
+                if (has_shared && shared_tie) {
+                    ++result.shared_tmus_tie_fallback_count;
+                }
+
                 const auto reverse_query = reversed_tokens(query.forward_tokens);
                 for (const auto* target : group_found->second) {
                     if (target->anchor_id == query.anchor_id) continue;
@@ -668,6 +766,8 @@ AssignmentResult assign_context_correspondences(
                     auto candidate = make_candidate(
                         query, reverse_query, *target, q_alpha_prime,
                         r_alpha_prime, edit_distance_limit);
+                    candidate.shared_tmus_count =
+                        count_shared_tmus(query.tmus_keys, target->tmus_keys);
                     if (candidate.score > parameters.min_candidate_score) {
                         candidates.push_back(candidate);
                     }

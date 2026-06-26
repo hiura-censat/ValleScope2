@@ -25,6 +25,7 @@ struct AnchorPosition {
     std::string anchor_id;
     std::uint32_t token_position = 0;
     std::vector<std::uint64_t> alpha_prime;
+    std::vector<std::string> tmus_keys;
 };
 
 struct ContigTokens {
@@ -87,6 +88,7 @@ struct TMus {
 struct PatternTag {
     std::uint32_t sample = 0;
     std::uint32_t length = 0;
+    std::string key;
 };
 
 struct AlphaPrimeDistribution {
@@ -141,6 +143,13 @@ Fingerprint fingerprint(const std::vector<TokenId>& tokens,
                   (second << 6) + (second >> 2);
     }
     return {first, second, length};
+}
+
+std::string fingerprint_key(const Fingerprint& value) {
+    std::ostringstream output;
+    output << std::hex << std::setw(16) << std::setfill('0') << value.first
+           << std::setw(16) << value.second << std::dec << ':' << value.length;
+    return output.str();
 }
 
 std::vector<TokenId> canonical_tokens(const ContigTokens& contig,
@@ -269,7 +278,7 @@ void load_tokens(const std::filesystem::path& path, Corpus& corpus) {
         const auto position = static_cast<std::uint32_t>(contig.tokens.size());
         contig.tokens.push_back(id);
         contig.anchor_prefix.push_back(contig.anchor_prefix.back() + (is_anchor ? 1 : 0));
-        if (is_anchor) contig.anchors.push_back({anchor_id, position, {}});
+        if (is_anchor) contig.anchors.push_back({anchor_id, position, {}, {}});
     }
 }
 
@@ -418,7 +427,8 @@ void add_pattern(std::vector<TrieNode>& trie,
     }
     const auto duplicate = std::find_if(trie[node].output.begin(), trie[node].output.end(),
         [&](const PatternTag value) {
-            return value.sample == tag.sample && value.length == tag.length;
+            return value.sample == tag.sample && value.length == tag.length &&
+                   value.key == tag.key;
         });
     if (duplicate == trie[node].output.end()) trie[node].output.push_back(tag);
 }
@@ -429,9 +439,11 @@ std::vector<TrieNode> make_automaton(const std::vector<TMus>& tmus,
     for (const auto& item : tmus) {
         auto pattern = canonical_tokens(
             corpus.contigs[item.contig], item.start, item.length);
-        add_pattern(trie, pattern, {item.sample, item.length});
+        const auto key = fingerprint_key(fingerprint(
+            pattern, 0, static_cast<std::uint32_t>(pattern.size())));
+        add_pattern(trie, pattern, {item.sample, item.length, key});
         std::reverse(pattern.begin(), pattern.end());
-        add_pattern(trie, pattern, {item.sample, item.length});
+        add_pattern(trie, pattern, {item.sample, item.length, key});
     }
     std::queue<std::uint32_t> pending;
     for (const auto edge : trie[0].next) pending.push(edge.second);
@@ -499,6 +511,44 @@ void assign_alpha(Corpus& corpus,
                 contig.anchors[i].alpha_prime[sample] =
                     static_cast<std::uint64_t>(value);
             }
+        }
+    }
+}
+
+void assign_tmus_keys(Corpus& corpus,
+                      const std::vector<TrieNode>& trie,
+                      const std::uint32_t radius) {
+    for (auto& contig : corpus.contigs) {
+        std::vector<std::uint32_t> positions;
+        positions.reserve(contig.anchors.size());
+        for (const auto& anchor : contig.anchors) positions.push_back(anchor.token_position);
+        std::uint32_t state = 0;
+        for (std::uint32_t end = 0; end < contig.tokens.size(); ++end) {
+            const TokenId token = contig.tokens[end];
+            while (state != 0 && trie[state].next.count(token) == 0) {
+                state = trie[state].failure;
+            }
+            const auto transition = trie[state].next.find(token);
+            state = transition == trie[state].next.end() ? 0 : transition->second;
+            for (const auto& tag : trie[state].output) {
+                const std::uint32_t start = end + 1 - tag.length;
+                const std::uint32_t minimum_center = end > radius ? end - radius : 0;
+                const std::uint64_t maximum_center =
+                    static_cast<std::uint64_t>(start) + radius;
+                const auto first = std::lower_bound(positions.begin(), positions.end(), minimum_center);
+                const auto last = std::upper_bound(positions.begin(), positions.end(), maximum_center);
+                for (auto iter = first; iter != last; ++iter) {
+                    const auto anchor_index =
+                        static_cast<std::size_t>(iter - positions.begin());
+                    contig.anchors[anchor_index].tmus_keys.push_back(tag.key);
+                }
+            }
+        }
+        for (auto& anchor : contig.anchors) {
+            std::sort(anchor.tmus_keys.begin(), anchor.tmus_keys.end());
+            anchor.tmus_keys.erase(
+                std::unique(anchor.tmus_keys.begin(), anchor.tmus_keys.end()),
+                anchor.tmus_keys.end());
         }
     }
 }
@@ -629,6 +679,7 @@ StructuralContextResult build_structural_contexts(
     const auto tmus = find_tmus(corpus, maximum_length);
     auto automaton = make_automaton(tmus, corpus);
     assign_alpha(corpus, automaton, context_radius_tokens);
+    assign_tmus_keys(corpus, automaton, context_radius_tokens);
 
     std::vector<std::uint64_t> tmus_per_sample(corpus.samples.size());
     std::ofstream tmus_stream(tmus_output);
@@ -653,7 +704,7 @@ StructuralContextResult build_structural_contexts(
     if (!anchors) throw std::runtime_error("cannot create anchor context output");
     anchors << "anchor_id\tsequence_id\tsample\tcenter_token_index"
                "\tcontext_start_token\tcontext_end_token\tcontext_length"
-               "\tcanonical_context_key\tforward_context_tokens";
+               "\tcanonical_context_key\tforward_context_tokens\ttmus_keys";
     for (const auto& sample : corpus.samples) anchors << '\t' << sample << "_alpha_prime";
     anchors << '\n';
 
@@ -679,7 +730,15 @@ StructuralContextResult build_structural_contexts(
                     << corpus.samples[contig.sample_id] << '\t'
                     << anchor.token_position << '\t' << begin << '\t' << end
                     << '\t' << end - begin << '\t' << key << '\t'
-                    << join_token_range(contig, corpus, begin, end);
+                    << join_token_range(contig, corpus, begin, end) << '\t';
+            if (anchor.tmus_keys.empty()) {
+                anchors << '.';
+            } else {
+                for (std::size_t i = 0; i < anchor.tmus_keys.size(); ++i) {
+                    if (i) anchors << ',';
+                    anchors << anchor.tmus_keys[i];
+                }
+            }
             for (const auto value : anchor.alpha_prime) anchors << '\t' << value;
             anchors << '\n';
             ++result.anchor_count;
