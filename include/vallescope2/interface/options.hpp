@@ -16,7 +16,7 @@ struct ProgramOptions {
     bool base_align = false;
     bool dump_window_scores = false;
     std::uint32_t anchor_length = 50;
-    std::uint32_t max_bundle_align_bp = 50000;
+    std::uint32_t max_bundle_align_bp = 100000;
     std::uint32_t min_center_distance = 100;
     std::uint32_t target_density = 6000;
     std::uint32_t distance_bin_size = 10;

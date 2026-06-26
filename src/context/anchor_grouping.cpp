@@ -128,7 +128,7 @@ AnchorGroupingResult group_anchors(
     std::ofstream anchors(grouped_anchors_output);
     if (!anchors) throw std::runtime_error("cannot create grouped anchor output");
     anchors << "anchor_id\tsequence_id\tstart\tend\tanchor_seq\tcanonical_seq"
-               "\tanchor_group_id\tnumeric_group_id\torientation\tgroupable\n";
+               "\tanchor_group_id\torientation\tgroupable\n";
 
     AnchorGroupingResult result;
     std::unordered_set<std::string> anchor_ids;
@@ -168,7 +168,7 @@ AnchorGroupingResult group_anchors(
         anchors << anchor_id << '\t' << sequence_id << '\t' << start << '\t'
                 << end << '\t' << anchor_sequence << '\t' << canonical << '\t';
         if (anchor_sequence.find('N') != std::string::npos) {
-            anchors << ".\t.\t" << orientation << "\tfalse\n";
+            anchors << ".\t" << orientation << "\tfalse\n";
             ++result.ungrouped_anchor_count;
         } else {
             const std::string hash = sha256_text(canonical);
@@ -185,8 +185,7 @@ AnchorGroupingResult group_anchors(
                 }
             }
             ++groups[group_id].count;
-            anchors << hash << '\t' << group_id << '\t' << orientation
-                    << "\ttrue\n";
+            anchors << hash << '\t' << orientation << "\ttrue\n";
             ++result.grouped_anchor_count;
         }
         ++result.anchor_count;
@@ -195,10 +194,9 @@ AnchorGroupingResult group_anchors(
 
     std::ofstream group_output(anchor_groups_output);
     if (!group_output) throw std::runtime_error("cannot create anchor group output");
-    group_output << "anchor_group_id\tnumeric_group_id\tcanonical_seq\tanchor_count\n";
+    group_output << "anchor_group_id\tcanonical_seq\tanchor_count\n";
     for (std::size_t i = 0; i < groups.size(); ++i) {
-        group_output << groups[i].hash << '\t' << i << '\t'
-                     << groups[i].canonical_sequence << '\t'
+        group_output << groups[i].hash << '\t' << groups[i].canonical_sequence << '\t'
                      << groups[i].count << '\n';
     }
     result.group_count = groups.size();

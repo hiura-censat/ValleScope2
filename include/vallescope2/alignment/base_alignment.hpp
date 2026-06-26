@@ -7,7 +7,7 @@ namespace vallescope2 {
 
 struct BaseAlignmentParameters {
     std::uint32_t anchor_length = 50;
-    std::uint32_t max_bundle_align_bp = 50000;
+    std::uint32_t max_bundle_align_bp = 100000;
     std::uint64_t max_fallback_cells = 25000000;
 };
 

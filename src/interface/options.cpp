@@ -31,13 +31,14 @@ void print_usage(std::ostream& output) {
            << "  -pm, --primary-margin INT  Primary assignment score margin [5]\n"
            << "  --pair-merge-mode MODE  reciprocal or union [union]\n"
            << "  --chain-predecessors INT  Chaining predecessor search limit [50]\n"
+           << "  --max-chain-gap INT  Maximum ref/query gap between chained anchors [50000]\n"
            << "  --gap-weight FLOAT  Chaining gap weight [1]\n"
            << "  --min-chain-anchors INT  Minimum anchors per emitted chain [10]\n"
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
            << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
            << "  --base-align  Globally align each first-pass chain interval and write PAF with cg:Z\n"
-           << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [50000]\n"
+           << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [100000]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
            << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
@@ -144,6 +145,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--chain-predecessors")
             options.chaining.predecessor_count =
                 parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--max-chain-gap")
+            options.chaining.max_chain_gap =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "--gap-weight")
             options.chaining.gap_weight =
                 parse_double(argc, argv, index, argument);
@@ -191,6 +195,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
     options.chaining.gap_unit = options.distance_bin_size;
     if (options.chaining.predecessor_count == 0)
         throw std::runtime_error("chain predecessor count must be greater than zero");
+    if (options.chaining.max_chain_gap == 0)
+        throw std::runtime_error("maximum chain gap must be greater than zero");
     if (options.chaining.gap_weight < 0.0)
         throw std::runtime_error("gap weight must be non-negative");
     if (options.chaining.min_chain_anchors == 0)

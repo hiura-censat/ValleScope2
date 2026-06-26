@@ -39,12 +39,11 @@ GroupedAnchorRow parse_row(const std::string& line,
     std::string end;
     std::string anchor_sequence;
     std::string canonical_sequence;
-    std::string numeric_group_id;
     std::string orientation;
     std::string groupable;
     if (!(input >> row.anchor_id >> row.sequence_id >> start >> end >>
           anchor_sequence >> canonical_sequence >> row.group_id >>
-          numeric_group_id >> orientation >> groupable)) {
+          orientation >> groupable)) {
         throw std::runtime_error("invalid grouped anchor row at line " +
                                  std::to_string(line_number));
     }
@@ -56,12 +55,12 @@ GroupedAnchorRow parse_row(const std::string& line,
     }
     if (groupable == "true") {
         row.groupable = true;
-        if (row.group_id == "." || numeric_group_id == ".") {
+        if (row.group_id == ".") {
             throw std::runtime_error("groupable anchor has no group at line " +
                                      std::to_string(line_number));
         }
     } else if (groupable == "false") {
-        if (row.group_id != "." || numeric_group_id != ".") {
+        if (row.group_id != ".") {
             throw std::runtime_error("ungroupable anchor has a group at line " +
                                      std::to_string(line_number));
         }

@@ -82,4 +82,12 @@ if(BUILD_TESTING)
         HTSlib::HTSlib OpenSSL::Crypto wfa2::wfa2cpp_static
     )
     add_test(NAME anchor-grouping COMMAND anchor_grouping_test)
+
+    add_executable(edit_distance_test
+        test/edit_distance_test.cpp
+    )
+    target_include_directories(edit_distance_test PRIVATE include)
+    target_compile_features(edit_distance_test PRIVATE cxx_std_17)
+    target_compile_options(edit_distance_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME edit-distance COMMAND edit_distance_test)
 endif()

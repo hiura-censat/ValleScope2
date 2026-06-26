@@ -154,6 +154,7 @@ Chaining and refinement:
 
 ```text
 --chain-predecessors INT           default: 50
+--max-chain-gap INT                default: 50000
 --gap-weight FLOAT                 default: 1
 --min-chain-anchors INT            default: 10
 --min-chain-score FLOAT            default: 0
@@ -165,7 +166,7 @@ Base-level bundle alignment:
 
 ```text
 --base-align
---max-bundle-align-bp INT          default: 50000
+--max-bundle-align-bp INT          default: 100000
 ```
 
 ## Current workflow
@@ -325,6 +326,8 @@ ValleScope2 chains merged anchor correspondences by dynamic programming.
 For candidate `i`, up to `--chain-predecessors` previous candidates in target
 coordinate order are considered. A predecessor is valid only if target and
 query order are both consistent with the assignment strand.
+In addition, both the target-side gap and query-side gap between adjacent
+chained anchors must be no larger than `--max-chain-gap`.
 
 The chaining recurrence is:
 

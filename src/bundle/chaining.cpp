@@ -288,8 +288,16 @@ std::string candidate_key(const Candidate& candidate) {
 }
 
 bool predecessor_allowed(const Candidate& predecessor,
-                         const Candidate& current) {
+                         const Candidate& current,
+                         const ChainingParameters& parameters) {
     if (predecessor.ref_center >= current.ref_center) return false;
+    const auto dr = current.ref_center - predecessor.ref_center;
+    const auto dq = current.query_center > predecessor.query_center
+                        ? current.query_center - predecessor.query_center
+                        : predecessor.query_center - current.query_center;
+    if (dr > parameters.max_chain_gap || dq > parameters.max_chain_gap) {
+        return false;
+    }
     if (current.strand == '+') {
         return predecessor.query_center < current.query_center;
     }
@@ -328,7 +336,7 @@ std::vector<std::size_t> chain_group(std::vector<Candidate>& candidates,
         const std::size_t begin =
             i > parameters.predecessor_count ? i - parameters.predecessor_count : 0;
         for (std::size_t j = i; j-- > begin;) {
-            if (!predecessor_allowed(candidates[j], candidates[i])) continue;
+            if (!predecessor_allowed(candidates[j], candidates[i], parameters)) continue;
             const double score =
                 candidates[i].score + states[j].dp -
                 gap_cost(candidates[j], candidates[i], parameters);
@@ -590,6 +598,7 @@ void write_metadata(const std::filesystem::path& path,
     if (!output) throw std::runtime_error("cannot create chain metadata");
     output << "{\n"
            << "  \"chain_predecessors\": " << parameters.predecessor_count << ",\n"
+           << "  \"max_chain_gap\": " << parameters.max_chain_gap << ",\n"
            << "  \"gap_weight\": " << parameters.gap_weight << ",\n"
            << "  \"gap_unit\": " << parameters.gap_unit << ",\n"
            << "  \"min_chain_anchors\": " << parameters.min_chain_anchors << ",\n"
@@ -621,6 +630,9 @@ ChainingResult build_anchor_chains(
     const ChainingParameters& parameters) {
     if (parameters.predecessor_count == 0) {
         throw std::runtime_error("chain predecessor count must be greater than zero");
+    }
+    if (parameters.max_chain_gap == 0) {
+        throw std::runtime_error("maximum chain gap must be greater than zero");
     }
     if (parameters.gap_unit == 0) {
         throw std::runtime_error("gap unit must be greater than zero");

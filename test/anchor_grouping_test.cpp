@@ -86,20 +86,19 @@ int main() {
                 "forward canonical sequence missing");
         require(contents.find("a2\tchr1\t2\t8\tGTACGT\tACGTAC") != std::string::npos,
                 "reverse canonical sequence missing");
-        require(contents.find("a3\tchr1\t6\t12\tGTNNAC\tGTNNAC\t.\t.") !=
+        require(contents.find("a3\tchr1\t6\t12\tGTNNAC\tGTNNAC\t.\t.\tfalse") !=
                     std::string::npos,
                 "N anchor was assigned a group ID");
 
         {
             std::ofstream output(token_input);
             output << "anchor_id\tsequence_id\tstart\tend\tanchor_seq"
-                      "\tcanonical_seq\tanchor_group_id\tnumeric_group_id"
-                      "\torientation\tgroupable\n"
-                   << "a1\ts1\t0\t6\tAAAAAA\tAAAAAA\tg1\t0\t+\ttrue\n"
-                   << "n1\ts1\t20\t26\tAANNAA\tAANNAA\t.\t.\t.\tfalse\n"
-                   << "a2\ts1\t49\t55\tCCCCCC\tCCCCCC\tg2\t1\t+\ttrue\n"
-                   << "a3\ts1\t99\t105\tGGGGGG\tCCCCCC\tg2\t1\t-\ttrue\n"
-                   << "a4\ts2\t0\t6\tTTTTTT\tAAAAAA\tg1\t0\t-\ttrue\n";
+                      "\tcanonical_seq\tanchor_group_id\torientation\tgroupable\n"
+                   << "a1\ts1\t0\t6\tAAAAAA\tAAAAAA\tg1\t+\ttrue\n"
+                   << "n1\ts1\t20\t26\tAANNAA\tAANNAA\t.\t.\tfalse\n"
+                   << "a2\ts1\t49\t55\tCCCCCC\tCCCCCC\tg2\t+\ttrue\n"
+                   << "a3\ts1\t99\t105\tGGGGGG\tCCCCCC\tg2\t-\ttrue\n"
+                   << "a4\ts2\t0\t6\tTTTTTT\tAAAAAA\tg1\t-\ttrue\n";
         }
         const auto token_result = vallescope2::build_structural_tokens(
             token_input, 50, tokens, token_metadata);
@@ -175,16 +174,15 @@ int main() {
         {
             std::ofstream output(assignment_grouped);
             output << "anchor_id\tsequence_id\tstart\tend\tanchor_seq"
-                      "\tcanonical_seq\tanchor_group_id\tnumeric_group_id"
-                      "\torientation\tgroupable\n"
-                   << "t1\tseqA\t0\t50\tA\tA\tg1\t0\t+\ttrue\n"
-                   << "t2\tseqA\t100\t150\tA\tA\tg2\t1\t+\ttrue\n"
-                   << "t3\tseqA\t200\t250\tA\tA\tg3\t2\t+\ttrue\n"
-                   << "t4\tseqA\t300\t350\tA\tA\tg3\t2\t+\ttrue\n"
-                   << "q1\tseqB\t0\t50\tA\tA\tg1\t0\t+\ttrue\n"
-                   << "q2\tseqB\t100\t150\tA\tA\tg2\t1\t+\ttrue\n"
-                   << "q3\tseqB\t200\t250\tA\tA\tg3\t2\t+\ttrue\n"
-                   << "q4\tseqB\t300\t350\tA\tA\tg4\t3\t+\ttrue\n";
+                      "\tcanonical_seq\tanchor_group_id\torientation\tgroupable\n"
+                   << "t1\tseqA\t0\t50\tA\tA\tg1\t+\ttrue\n"
+                   << "t2\tseqA\t100\t150\tA\tA\tg2\t+\ttrue\n"
+                   << "t3\tseqA\t200\t250\tA\tA\tg3\t+\ttrue\n"
+                   << "t4\tseqA\t300\t350\tA\tA\tg3\t+\ttrue\n"
+                   << "q1\tseqB\t0\t50\tA\tA\tg1\t+\ttrue\n"
+                   << "q2\tseqB\t100\t150\tA\tA\tg2\t+\ttrue\n"
+                   << "q3\tseqB\t200\t250\tA\tA\tg3\t+\ttrue\n"
+                   << "q4\tseqB\t300\t350\tA\tA\tg4\t+\ttrue\n";
         }
         {
             std::ofstream output(assignment_contexts);
@@ -257,7 +255,7 @@ int main() {
         const auto chaining_result = vallescope2::build_anchor_chains(
             correspondences, assignments, assignment_grouped, chains, chain_anchors,
             chain_metadata, refined_chains, refined_chain_anchors,
-            refined_chain_metadata, {2, 1.0, 50, 1, 0.0, 50000, 1});
+            refined_chain_metadata, {2, 50000, 1.0, 50, 1, 0.0, 50000, 1});
         require(chaining_result.candidate_count >= 1,
                 "chain candidates were not loaded");
         require(chaining_result.chain_count >= 1,

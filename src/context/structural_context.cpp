@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <queue>
 #include <sstream>
@@ -86,6 +87,13 @@ struct TMus {
 struct PatternTag {
     std::uint32_t sample = 0;
     std::uint32_t length = 0;
+};
+
+struct AlphaPrimeDistribution {
+    std::uint64_t zero = 0;
+    std::uint64_t one_to_nine = 0;
+    std::uint64_t ten_to_forty_nine = 0;
+    std::uint64_t fifty_or_more = 0;
 };
 
 struct TrieNode {
@@ -178,6 +186,21 @@ std::string stable_serialization(const std::vector<TokenId>& tokens,
         result += label;
     }
     return result;
+}
+
+std::string json_escape(const std::string& text) {
+    std::string escaped;
+    for (const char value : text) {
+        switch (value) {
+            case '\\': escaped += "\\\\"; break;
+            case '"': escaped += "\\\""; break;
+            case '\n': escaped += "\\n"; break;
+            case '\r': escaped += "\\r"; break;
+            case '\t': escaped += "\\t"; break;
+            default: escaped += value; break;
+        }
+    }
+    return escaped;
 }
 
 void load_sequence_table(const std::filesystem::path& path, Corpus& corpus) {
@@ -504,6 +527,42 @@ std::vector<TokenId> canonical_context(const ContigTokens& contig,
     return context;
 }
 
+std::vector<AlphaPrimeDistribution> summarize_alpha_prime(
+    const Corpus& corpus) {
+    std::vector<AlphaPrimeDistribution> summaries(corpus.samples.size());
+    for (const auto& contig : corpus.contigs) {
+        for (const auto& anchor : contig.anchors) {
+            for (std::size_t sample = 0; sample < anchor.alpha_prime.size();
+                 ++sample) {
+                const auto value = anchor.alpha_prime[sample];
+                auto& summary = summaries[sample];
+                if (value == 0) {
+                    ++summary.zero;
+                } else if (value < 10) {
+                    ++summary.one_to_nine;
+                } else if (value < 50) {
+                    ++summary.ten_to_forty_nine;
+                } else {
+                    ++summary.fifty_or_more;
+                }
+            }
+        }
+    }
+    return summaries;
+}
+
+void write_alpha_bin(std::ostream& output,
+                     const char* label,
+                     const std::uint64_t count,
+                     const std::uint64_t total) {
+    const double percent =
+        total == 0 ? 0.0 : 100.0 * static_cast<double>(count) /
+                               static_cast<double>(total);
+    output << "{\"label\": \"" << label << "\", \"count\": " << count
+           << ", \"percent\": " << std::fixed << std::setprecision(2)
+           << percent << std::defaultfloat << '}';
+}
+
 void write_metadata(const std::filesystem::path& path,
                     const Corpus& corpus,
                     const std::uint32_t radius,
@@ -511,6 +570,7 @@ void write_metadata(const std::filesystem::path& path,
                     const std::vector<std::uint64_t>& tmus_per_sample) {
     std::ofstream output(path);
     if (!output) throw std::runtime_error("cannot create structural context metadata");
+    const auto alpha_prime = summarize_alpha_prime(corpus);
     output << "{\n  \"context_radius_tokens\": " << radius
            << ",\n  \"maximum_context_length\": " << 2 * radius + 1
            << ",\n  \"uniqueness_scope\": \"sample\",\n"
@@ -524,10 +584,28 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"samples\": [";
     for (std::size_t i = 0; i < corpus.samples.size(); ++i) {
         if (i) output << ", ";
-        output << "{\"name\": \"" << corpus.samples[i]
+        output << "{\"name\": \"" << json_escape(corpus.samples[i])
                << "\", \"n_tmus\": " << tmus_per_sample[i] << '}';
     }
-    output << "]\n}\n";
+    output << "],\n  \"alpha_prime_distribution\": [\n";
+    for (std::size_t i = 0; i < corpus.samples.size(); ++i) {
+        if (i) output << ",\n";
+        const auto& summary = alpha_prime[i];
+        const std::uint64_t total = summary.zero + summary.one_to_nine +
+                                    summary.ten_to_forty_nine +
+                                    summary.fifty_or_more;
+        output << "    {\"sample\": \"" << json_escape(corpus.samples[i])
+               << "\", \"n_anchors\": " << total << ", \"bins\": [";
+        write_alpha_bin(output, "0", summary.zero, total);
+        output << ", ";
+        write_alpha_bin(output, "1-9", summary.one_to_nine, total);
+        output << ", ";
+        write_alpha_bin(output, "10-49", summary.ten_to_forty_nine, total);
+        output << ", ";
+        write_alpha_bin(output, "50+", summary.fifty_or_more, total);
+        output << "]}";
+    }
+    output << "\n  ]\n}\n";
 }
 
 }  // namespace
