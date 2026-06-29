@@ -13,7 +13,7 @@ namespace vallescope2 {
 struct ProgramOptions {
     bool combine = false;
     bool debug = false;
-    bool base_align = false;
+    bool base_align = true;
     bool dump_window_scores = false;
     std::uint32_t anchor_length = 50;
     std::uint32_t max_bundle_align_bp = 1000000;

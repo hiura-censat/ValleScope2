@@ -39,7 +39,8 @@ void print_usage(std::ostream& output) {
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
            << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
-           << "  --base-align  Globally align each first-pass chain interval and write PAF with cg:Z\n"
+           << "  --base-align  Write base-level bundle PAF to stdout with cg:Z [default]\n"
+           << "  --no-base-align  Stop after chaining and do not write final PAF\n"
            << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [1000000]\n"
            << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
            << "  --patch-window-bp INT  Extension window size for gap patching [1000]\n"
@@ -122,6 +123,7 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         if (argument == "--combine") options.combine = true;
         else if (argument == "--debug") options.debug = true;
         else if (argument == "--base-align") options.base_align = true;
+        else if (argument == "--no-base-align") options.base_align = false;
         else if (argument == "--dump-window-scores") options.dump_window_scores = true;
         else if (argument == "-K" || argument == "--kmer-length")
             options.genmap.kmer_length = parse_unsigned(argc, argv, index, argument);

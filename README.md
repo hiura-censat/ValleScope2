@@ -78,33 +78,34 @@ build/vallescope2 genome.fa
 Two FASTAs: target-query comparison.
 
 ```bash
-build/vallescope2 target.fa query.fa
+build/vallescope2 target.fa query.fa > aln.paf
 ```
 
 Two or more FASTAs combined into one normalized multi-FASTA, followed by
 all-vs-all self comparison.
 
 ```bash
-build/vallescope2 --combine hap1.fa hap2.fa
-build/vallescope2 --combine hap1.fa hap2.fa hap3.fa
+build/vallescope2 --combine hap1.fa hap2.fa > aln.paf
+build/vallescope2 --combine hap1.fa hap2.fa hap3.fa > aln.paf
 ```
 
 Keep intermediate files:
 
 ```bash
-build/vallescope2 --combine --debug hap1.fa hap2.fa hap3.fa
+build/vallescope2 --combine --debug hap1.fa hap2.fa hap3.fa > aln.paf
 ```
 
-Run bundle-level WFA2 base alignment and write PAF records with `cg:Z` CIGAR:
+Base-level WFA2 alignment is enabled by default. To stop after chaining during
+development:
 
 ```bash
-build/vallescope2 --combine --debug --base-align hap1.fa hap2.fa hap3.fa
+build/vallescope2 --no-base-align --combine --debug hap1.fa hap2.fa hap3.fa
 ```
 
 Increase the maximum bundle interval size allowed for WFA2 alignment:
 
 ```bash
-build/vallescope2 --base-align --max-bundle-align-bp 200000 target.fa query.fa
+build/vallescope2 --max-bundle-align-bp 200000 target.fa query.fa > aln.paf
 ```
 
 ## Important options
@@ -167,6 +168,7 @@ Base-level bundle alignment:
 
 ```text
 --base-align
+--no-base-align
 --max-bundle-align-bp INT          default: 1000000
 --max-patch-gap-bp INT            default: 70000
 --patch-window-bp INT             default: 1000
@@ -378,9 +380,11 @@ refined_chains.meta.json
 
 ### 9. Bundle-level base alignment
 
-When `--base-align` is specified, ValleScope2 extracts the ref/query interval
-for each first-pass chain, expands both sides by `anchor_length / 2`, and runs
-WFA2-lib end-to-end global alignment.
+By default, ValleScope2 extracts the ref/query interval for each first-pass
+chain, expands both sides by `anchor_length / 2`, and runs WFA2-lib end-to-end
+global alignment. The final PAF is written to standard output, so users can
+choose the filename with shell redirection, for example
+`vallescope2 reference.fa query.fa > aln.paf`.
 Both first-pass chains (`chains.tsv`) and refined chains (`refined_chains.tsv`)
 are used as bundle intervals.
 
@@ -399,14 +403,13 @@ Large intervals are skipped if either side exceeds:
 --max-bundle-align-bp
 ```
 
-Outputs:
+Final output:
 
 ```text
-bundle_alignments.paf
-bundle_alignments.meta.json
+stdout PAF
 ```
 
-`bundle_alignments.paf` includes:
+The final PAF includes:
 
 ```text
 cg:Z:<CIGAR>
@@ -421,38 +424,22 @@ by fixed anchor-pair points.
 
 ## Output summary
 
-Main persistent outputs:
+Default persistent outputs:
 
 ```text
-anchors.bed
-anchors.meta.json
-grouped_anchors.tsv
-anchor_groups.tsv
-structural_tokens.tsv
-structural_tokens.meta.json
-anchor_contexts.tsv
-context_groups.tsv
-tmus.tsv
-structural_contexts.meta.json
-assignments.tsv
-assignments.meta.json
-anchor_correspondences.tsv
-anchor_correspondences.meta.json
-chains.tsv
-chain_anchors.tsv
-chains.meta.json
-refined_chains.tsv
-refined_chain_anchors.tsv
-refined_chains.meta.json
-genmap.log
+none
 ```
 
-Optional outputs:
+Standard output:
+
+```text
+PAF with cg:Z CIGAR
+```
+
+Optional persistent outputs:
 
 ```text
 window_scores.tsv
-bundle_alignments.paf
-bundle_alignments.meta.json
 ```
 
 Debug workspace:

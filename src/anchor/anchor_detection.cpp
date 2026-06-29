@@ -41,6 +41,12 @@ void report_preparation(const PreparationResult& result,
     std::cerr << "Sequence table: " << result.sequence_table << '\n';
 }
 
+void stream_file_to_stdout(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    if (!input) throw std::runtime_error("cannot open final PAF output");
+    std::cout << input.rdbuf();
+}
+
 }  // namespace
 
 void run_anchor_detection(const ProgramOptions& options) {
@@ -96,34 +102,34 @@ void run_anchor_detection(const ProgramOptions& options) {
     const std::chrono::duration<double> selection_time =
         std::chrono::steady_clock::now() - selection_start;
 
-    const auto current = std::filesystem::current_path();
-    const auto anchor_bed = current / "anchors.bed";
-    const auto anchor_metadata = current / "anchors.meta.json";
-    const auto genmap_log = current / "genmap.log";
-    const auto grouped_anchors = current / "grouped_anchors.tsv";
-    const auto anchor_groups = current / "anchor_groups.tsv";
-    const auto structural_tokens = current / "structural_tokens.tsv";
+    const auto output_directory = workspace.path();
+    const auto anchor_bed = output_directory / "anchors.bed";
+    const auto anchor_metadata = output_directory / "anchors.meta.json";
+    const auto genmap_log = output_directory / "genmap.log";
+    const auto grouped_anchors = output_directory / "grouped_anchors.tsv";
+    const auto anchor_groups = output_directory / "anchor_groups.tsv";
+    const auto structural_tokens = output_directory / "structural_tokens.tsv";
     const auto structural_token_metadata =
-        current / "structural_tokens.meta.json";
-    const auto anchor_contexts = current / "anchor_contexts.tsv";
-    const auto context_groups = current / "context_groups.tsv";
-    const auto tmus = current / "tmus.tsv";
+        output_directory / "structural_tokens.meta.json";
+    const auto anchor_contexts = output_directory / "anchor_contexts.tsv";
+    const auto context_groups = output_directory / "context_groups.tsv";
+    const auto tmus = output_directory / "tmus.tsv";
     const auto structural_context_metadata =
-        current / "structural_contexts.meta.json";
-    const auto assignments = current / "assignments.tsv";
-    const auto assignment_metadata = current / "assignments.meta.json";
-    const auto correspondences = current / "anchor_correspondences.tsv";
+        output_directory / "structural_contexts.meta.json";
+    const auto assignments = output_directory / "assignments.tsv";
+    const auto assignment_metadata = output_directory / "assignments.meta.json";
+    const auto correspondences = output_directory / "anchor_correspondences.tsv";
     const auto correspondence_metadata =
-        current / "anchor_correspondences.meta.json";
-    const auto chains = current / "chains.tsv";
-    const auto chain_anchors = current / "chain_anchors.tsv";
-    const auto chain_metadata = current / "chains.meta.json";
-    const auto refined_chains = current / "refined_chains.tsv";
-    const auto refined_chain_anchors = current / "refined_chain_anchors.tsv";
-    const auto refined_chain_metadata = current / "refined_chains.meta.json";
-    const auto bundle_alignments = current / "bundle_alignments.paf";
+        output_directory / "anchor_correspondences.meta.json";
+    const auto chains = output_directory / "chains.tsv";
+    const auto chain_anchors = output_directory / "chain_anchors.tsv";
+    const auto chain_metadata = output_directory / "chains.meta.json";
+    const auto refined_chains = output_directory / "refined_chains.tsv";
+    const auto refined_chain_anchors = output_directory / "refined_chain_anchors.tsv";
+    const auto refined_chain_metadata = output_directory / "refined_chains.meta.json";
+    const auto bundle_alignments = output_directory / "bundle_alignments.paf";
     const auto bundle_alignment_metadata =
-        current / "bundle_alignments.meta.json";
+        output_directory / "bundle_alignments.meta.json";
     write_anchor_bed(anchor_bed, selection.anchors, genmap.catalog);
 
     const auto context_index = workspace.path() / "context_input.fa.fai";
@@ -183,37 +189,45 @@ void run_anchor_detection(const ProgramOptions& options) {
         std::error_code error;
         std::filesystem::remove(path, error);
     }
-    std::cerr << "Selected " << selection.anchors.size() << " anchor(s); actual density "
-              << selection.actual_density << " anchors/Mb in "
-              << selection_time.count() << " s.\n"
-              << "Anchor BED: " << anchor_bed << '\n'
-              << "Anchor metadata: " << anchor_metadata << '\n'
-              << "Grouped anchors: " << grouped_anchors << '\n'
-              << "Anchor groups: " << anchor_groups << '\n'
-              << "Constructed " << grouping.group_count << " anchor group(s); "
+    std::cerr << "Selected " << selection.anchors.size()
+              << " anchor(s); actual density " << selection.actual_density
+              << " anchors/Mb in " << selection_time.count() << " s.\n";
+    if (options.debug) {
+        std::cerr << "Anchor BED: " << anchor_bed << '\n'
+                  << "Anchor metadata: " << anchor_metadata << '\n'
+                  << "Grouped anchors: " << grouped_anchors << '\n'
+                  << "Anchor groups: " << anchor_groups << '\n';
+    }
+    std::cerr << "Constructed " << grouping.group_count << " anchor group(s); "
               << grouping.ungrouped_anchor_count
-              << " anchor(s) containing N were not grouped.\n"
-              << "Structural tokens: " << structural_tokens << '\n'
-              << "Structural token metadata: " << structural_token_metadata
-              << '\n'
-              << "Constructed " << tokenization.token_count()
+              << " anchor(s) containing N were not grouped.\n";
+    if (options.debug) {
+        std::cerr << "Structural tokens: " << structural_tokens << '\n'
+                  << "Structural token metadata: " << structural_token_metadata
+                  << '\n';
+    }
+    std::cerr << "Constructed " << tokenization.token_count()
               << " structural token(s) using " << options.distance_bin_size
-              << " bp distance bins.\n"
-              << "Anchor contexts: " << anchor_contexts << '\n'
-              << "Context groups: " << context_groups << '\n'
-              << "tMUS table: " << tmus << '\n'
-              << "Structural context metadata: "
-              << structural_context_metadata << '\n'
-              << "Constructed " << contexts.anchor_count << " context(s), "
+              << " bp distance bins.\n";
+    if (options.debug) {
+        std::cerr << "Anchor contexts: " << anchor_contexts << '\n'
+                  << "Context groups: " << context_groups << '\n'
+                  << "tMUS table: " << tmus << '\n'
+                  << "Structural context metadata: "
+                  << structural_context_metadata << '\n';
+    }
+    std::cerr << "Constructed " << contexts.anchor_count << " context(s), "
               << contexts.context_group_count << " canonical context group(s), and "
               << contexts.tmus_count << " sample-specific tMUS in "
-              << context_time.count() << " s.\n"
-              << "Assignments: " << assignments << '\n'
-              << "Assignment metadata: " << assignment_metadata << '\n'
-              << "Anchor correspondences: " << correspondences << '\n'
-              << "Anchor correspondence metadata: " << correspondence_metadata
-              << '\n'
-              << "Assigned " << assignment.primary_count << " primary, "
+              << context_time.count() << " s.\n";
+    if (options.debug) {
+        std::cerr << "Assignments: " << assignments << '\n'
+                  << "Assignment metadata: " << assignment_metadata << '\n'
+                  << "Anchor correspondences: " << correspondences << '\n'
+                  << "Anchor correspondence metadata: " << correspondence_metadata
+                  << '\n';
+    }
+    std::cerr << "Assigned " << assignment.primary_count << " primary, "
               << assignment.ambiguous_query_count << " ambiguous query, and "
               << assignment.unmatched_count << " unmatched query anchor(s) across "
               << assignment.ordered_pair_count << " ordered pair(s) in "
@@ -224,24 +238,28 @@ void run_anchor_detection(const ProgramOptions& options) {
                           PairMergeMode::reciprocal
                       ? "reciprocal"
                       : "union")
-              << " mode.\n"
-              << "Chains: " << chains << '\n'
-              << "Chain anchors: " << chain_anchors << '\n'
-              << "Chain metadata: " << chain_metadata << '\n'
-              << "Refined chains: " << refined_chains << '\n'
-              << "Refined chain anchors: " << refined_chain_anchors << '\n'
-              << "Refined chain metadata: " << refined_chain_metadata << '\n'
-              << "Built " << chaining.chain_count << " top chain(s) from "
+              << " mode.\n";
+    if (options.debug) {
+        std::cerr << "Chains: " << chains << '\n'
+                  << "Chain anchors: " << chain_anchors << '\n'
+                  << "Chain metadata: " << chain_metadata << '\n'
+                  << "Refined chains: " << refined_chains << '\n'
+                  << "Refined chain anchors: " << refined_chain_anchors << '\n'
+                  << "Refined chain metadata: " << refined_chain_metadata << '\n';
+    }
+    std::cerr << "Built " << chaining.chain_count << " top chain(s) from "
               << chaining.candidate_count << " correspondence candidate(s), using "
               << chaining.chain_anchor_count << " chained anchor pair(s); refined "
               << chaining.refined_chain_count << " chain(s), using "
               << chaining.refined_chain_anchor_count << " anchor pair(s) in "
               << chaining_time.count() << " s.\n";
     if (options.base_align) {
-        std::cerr << "Bundle alignments: " << bundle_alignments << '\n'
-                  << "Bundle alignment metadata: "
-                  << bundle_alignment_metadata << '\n'
-                  << "Base-aligned " << base_alignment.aligned_bundle_count
+        if (options.debug) {
+            std::cerr << "Bundle alignments: " << bundle_alignments << '\n'
+                      << "Bundle alignment metadata: "
+                      << bundle_alignment_metadata << '\n';
+        }
+        std::cerr << "Base-aligned " << base_alignment.aligned_bundle_count
                   << " of " << base_alignment.bundle_count
                   << " bundle(s); skipped "
                   << base_alignment.skipped_bundle_count
@@ -250,8 +268,8 @@ void run_anchor_detection(const ProgramOptions& options) {
                   << " merged bundle(s) in "
                   << base_alignment_time.count() << " s.\n";
     }
-    std::cerr
-              << "GenMap log: " << genmap_log << '\n';
+    if (options.debug) std::cerr << "GenMap log: " << genmap_log << '\n';
+    if (options.base_align) stream_file_to_stdout(bundle_alignments);
 }
 
 }  // namespace vallescope2
