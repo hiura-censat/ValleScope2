@@ -20,7 +20,6 @@ struct ProgramOptions {
     std::uint32_t max_patch_gap_bp = 70000;
     std::uint32_t patch_window_bp = 1000;
     double min_patch_identity = 0.85;
-    double max_patch_gap_ratio = 2.0;
     std::uint32_t min_center_distance = 100;
     std::uint32_t target_density = 6000;
     std::uint32_t distance_bin_size = 10;

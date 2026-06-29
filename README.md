@@ -171,7 +171,6 @@ Base-level bundle alignment:
 --max-patch-gap-bp INT            default: 70000
 --patch-window-bp INT             default: 1000
 --min-patch-identity FLOAT        default: 0.85
---max-patch-gap-ratio FLOAT       default: 2
 ```
 
 ## Current workflow
@@ -390,8 +389,7 @@ alignment.
 
 Before WFA2 alignment, adjacent bundles on the same sample pair, sequence pair,
 and strand are tested for gap patching. If both the ref and query gaps are at
-most `--max-patch-gap-bp`, the gap ratio is not larger than
-`--max-patch-gap-ratio`, and extension windows keep at least
+most `--max-patch-gap-bp`, and extension windows keep at least
 `--min-patch-identity` by Levenshtein edit distance, the two bundles are merged
 and aligned as one patched bundle.
 

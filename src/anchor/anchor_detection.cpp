@@ -164,7 +164,7 @@ void run_anchor_detection(const ProgramOptions& options) {
             bundle_alignment_metadata,
             {options.anchor_length, options.max_bundle_align_bp, 25000000,
              options.max_patch_gap_bp, options.patch_window_bp,
-             options.min_patch_identity, options.max_patch_gap_ratio});
+             options.min_patch_identity});
         base_alignment_time =
             std::chrono::steady_clock::now() - base_alignment_start;
     }

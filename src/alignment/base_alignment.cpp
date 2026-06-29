@@ -421,17 +421,6 @@ std::uint64_t query_gap_between(const ChainBundle& left,
     return right.query_end < left.query_start ? left.query_start - right.query_end : 0;
 }
 
-bool gap_ratio_is_allowed(const std::uint64_t ref_gap,
-                          const std::uint64_t query_gap,
-                          const double max_ratio) {
-    const auto smaller = std::min(ref_gap, query_gap);
-    const auto larger = std::max(ref_gap, query_gap);
-    if (larger == 0) return true;
-    if (smaller == 0) return false;
-    return static_cast<double>(larger) / static_cast<double>(smaller) <=
-           max_ratio;
-}
-
 std::string fetch_patch_query(faidx_t* index,
                               const std::string& sequence_id,
                               const Interval& interval,
@@ -463,10 +452,6 @@ bool can_patch_gap(faidx_t* index,
     const auto query_gap = query_gap_between(left, right);
     if (ref_gap > parameters.max_patch_gap_bp ||
         query_gap > parameters.max_patch_gap_bp) {
-        return false;
-    }
-    if (!gap_ratio_is_allowed(ref_gap, query_gap,
-                              parameters.max_patch_gap_ratio)) {
         return false;
     }
     if (ref_gap == 0 && query_gap == 0) return true;
@@ -604,7 +589,6 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"max_patch_gap_bp\": " << parameters.max_patch_gap_bp << ",\n"
            << "  \"patch_window_bp\": " << parameters.patch_window_bp << ",\n"
            << "  \"min_patch_identity\": " << parameters.min_patch_identity << ",\n"
-           << "  \"max_patch_gap_ratio\": " << parameters.max_patch_gap_ratio << ",\n"
            << "  \"bundle_count\": " << result.bundle_count << ",\n"
            << "  \"patched_bundle_count\": " << result.patched_bundle_count << ",\n"
            << "  \"patch_count\": " << result.patch_count << ",\n"
