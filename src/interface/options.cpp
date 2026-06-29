@@ -33,13 +33,18 @@ void print_usage(std::ostream& output) {
            << "  --pair-merge-mode MODE  reciprocal or union [union]\n"
            << "  --chain-predecessors INT  Chaining predecessor search limit [50]\n"
            << "  --max-chain-gap INT  Maximum ref/query gap between chained anchors [50000]\n"
-           << "  --gap-weight FLOAT  Chaining gap weight [1]\n"
+           << "  --chain-max-gap-ratio FLOAT  Maximum max(dr,dq)/min(dr,dq) [2]\n"
+           << "  --gap-weight FLOAT  Linear chaining gap weight [0.002]\n"
            << "  --min-chain-anchors INT  Minimum anchors per emitted chain [10]\n"
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
            << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
            << "  --base-align  Globally align each first-pass chain interval and write PAF with cg:Z\n"
-           << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [100000]\n"
+           << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [1000000]\n"
+           << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
+           << "  --patch-window-bp INT  Extension window size for gap patching [1000]\n"
+           << "  --min-patch-identity FLOAT  Minimum extension identity for gap patching [0.85]\n"
+           << "  --max-patch-gap-ratio FLOAT  Maximum ref/query patch gap ratio [2]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
            << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
@@ -152,6 +157,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--max-chain-gap")
             options.chaining.max_chain_gap =
                 parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--chain-max-gap-ratio")
+            options.chaining.chain_max_gap_ratio =
+                parse_double(argc, argv, index, argument);
         else if (argument == "--gap-weight")
             options.chaining.gap_weight =
                 parse_double(argc, argv, index, argument);
@@ -170,6 +178,18 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--max-bundle-align-bp")
             options.max_bundle_align_bp =
                 parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--max-patch-gap-bp")
+            options.max_patch_gap_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--patch-window-bp")
+            options.patch_window_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-patch-identity")
+            options.min_patch_identity =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--max-patch-gap-ratio")
+            options.max_patch_gap_ratio =
+                parse_double(argc, argv, index, argument);
         else if (argument == "-t" || argument == "--threads")
             options.genmap.threads = parse_unsigned(argc, argv, index, argument);
         else if (argument == "--genmap") {
@@ -196,19 +216,27 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("thread count must be greater than zero");
     if (options.distance_bin_size == 0)
         throw std::runtime_error("distance bin size must be greater than zero");
-    options.chaining.gap_unit = options.distance_bin_size;
+    options.chaining.gap_unit = 10;
     if (options.chaining.predecessor_count == 0)
         throw std::runtime_error("chain predecessor count must be greater than zero");
     if (options.chaining.max_chain_gap == 0)
         throw std::runtime_error("maximum chain gap must be greater than zero");
     if (options.chaining.gap_weight < 0.0)
         throw std::runtime_error("gap weight must be non-negative");
+    if (options.chaining.chain_max_gap_ratio < 1.0)
+        throw std::runtime_error("chain max gap ratio must be at least 1");
     if (options.chaining.min_chain_anchors == 0)
         throw std::runtime_error("minimum chain anchor count must be greater than zero");
     if (options.chaining.refinement_min_chain_anchors == 0)
         throw std::runtime_error("minimum refinement chain anchor count must be greater than zero");
     if (options.max_bundle_align_bp == 0)
         throw std::runtime_error("maximum bundle alignment length must be greater than zero");
+    if (options.patch_window_bp == 0)
+        throw std::runtime_error("patch window size must be greater than zero");
+    if (options.min_patch_identity < 0.0 || options.min_patch_identity > 1.0)
+        throw std::runtime_error("minimum patch identity must be between 0 and 1");
+    if (options.max_patch_gap_ratio < 1.0)
+        throw std::runtime_error("maximum patch gap ratio must be at least 1");
     if (options.context_radius_tokens >
         (std::numeric_limits<std::uint32_t>::max() - 1) / 2) {
         throw std::runtime_error("context radius is too large");

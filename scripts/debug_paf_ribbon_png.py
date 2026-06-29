@@ -116,6 +116,7 @@ def main():
 
     qlen = max(r["qlen"] for r in records)
     tlen = max(r["tlen"] for r in records)
+    scale_len = max(qlen, tlen)
 
     image = Image.new("RGBA", (args.width, args.height), "white")
     overlay = Image.new("RGBA", image.size, (255, 255, 255, 0))
@@ -128,11 +129,14 @@ def main():
     yt = 470
     track_h = 12
 
+    def x_common(pos):
+        return margin + (right - margin) * pos / max(1, scale_len)
+
     def xq(pos):
-        return margin + (right - margin) * pos / max(1, qlen)
+        return x_common(pos)
 
     def xt(pos):
-        return margin + (right - margin) * pos / max(1, tlen)
+        return x_common(pos)
 
     for b in bundles:
         q0, q1 = xq(b["qstart"]), xq(b["qend"])
@@ -166,13 +170,26 @@ def main():
     base = ImageDraw.Draw(image)
     font = ImageFont.load_default()
 
-    base.rectangle([margin, yq - track_h // 2, right, yq + track_h // 2], fill=(40, 40, 40, 255))
-    base.rectangle([margin, yt - track_h // 2, right, yt + track_h // 2], fill=(40, 40, 40, 255))
+    q_right = xq(qlen)
+    t_right = xt(tlen)
+    base.rectangle([margin, yq - track_h // 2, q_right, yq + track_h // 2], fill=(40, 40, 40, 255))
+    base.rectangle([margin, yt - track_h // 2, t_right, yt + track_h // 2], fill=(40, 40, 40, 255))
+    base.line([margin, yq + 28, right, yq + 28], fill=(210, 210, 210, 255), width=1)
+    base.line([margin, yt - 28, right, yt - 28], fill=(210, 210, 210, 255), width=1)
+    tick_step = 500000
+    for tick in range(0, scale_len + tick_step, tick_step):
+        x = x_common(min(tick, scale_len))
+        base.line([x, yq + 22, x, yq + 34], fill=(150, 150, 150, 255), width=1)
+        base.line([x, yt - 34, x, yt - 22], fill=(150, 150, 150, 255), width=1)
+        if tick <= scale_len:
+            label = f"{tick // 1000000} Mb" if tick % 1000000 == 0 else f"{tick / 1000000:.1f}"
+            base.text((x - 12, yq + 38), label, fill=(70, 70, 70, 255), font=font)
     base.text((margin, yq - 35), f"query: {qname} ({qlen:,} bp)", fill=(0, 0, 0, 255), font=font)
     base.text((margin, yt + 22), f"target: {tname} ({tlen:,} bp)", fill=(0, 0, 0, 255), font=font)
     title = args.title or f"{len(records):,} PAF anchor correspondences"
     if bundles:
         title += f" + {len(bundles):,} bundle(s)"
+    title += " / common bp scale"
     base.text((margin, 35), title, fill=(0, 0, 0, 255), font=font)
 
     legend = [("both", support_color("both")), ("forward_only", support_color("forward_only")),

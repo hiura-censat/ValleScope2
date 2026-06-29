@@ -255,10 +255,19 @@ int main() {
                     "sampleA\tsampleB\tt1\tq1\tboth"
                 ) != std::string::npos,
                 "reciprocal correspondence is missing");
+        vallescope2::ChainingParameters chaining_parameters;
+        chaining_parameters.predecessor_count = 2;
+        chaining_parameters.max_chain_gap = 50000;
+        chaining_parameters.gap_weight = 1.0;
+        chaining_parameters.gap_unit = 50;
+        chaining_parameters.min_chain_anchors = 1;
+        chaining_parameters.min_chain_score = 0.0;
+        chaining_parameters.refinement_window = 50000;
+        chaining_parameters.refinement_min_chain_anchors = 1;
         const auto chaining_result = vallescope2::build_anchor_chains(
             correspondences, assignments, assignment_grouped, chains, chain_anchors,
             chain_metadata, refined_chains, refined_chain_anchors,
-            refined_chain_metadata, {2, 50000, 1.0, 50, 1, 0.0, 50000, 1});
+            refined_chain_metadata, chaining_parameters);
         require(chaining_result.candidate_count >= 1,
                 "chain candidates were not loaded");
         require(chaining_result.chain_count >= 1,
@@ -277,7 +286,7 @@ int main() {
                    << "0\tsampleA\tsampleB\tchr1\tchr1\t+\t1\t1\t0\t6\t0\t6\n";
         }
         const auto base_alignment_result = vallescope2::align_chain_bundles(
-            base_chains, fasta, index, bundle_paf, bundle_alignment_metadata,
+            {base_chains}, fasta, index, bundle_paf, bundle_alignment_metadata,
             {6, 1000, 1000000});
         require(base_alignment_result.aligned_bundle_count >= 1,
                 "bundle base alignment was not produced");

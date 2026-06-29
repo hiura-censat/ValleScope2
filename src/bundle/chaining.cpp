@@ -298,6 +298,13 @@ bool predecessor_allowed(const Candidate& predecessor,
     if (dr > parameters.max_chain_gap || dq > parameters.max_chain_gap) {
         return false;
     }
+    const auto smaller_gap = std::min(dr, dq);
+    const auto larger_gap = std::max(dr, dq);
+    if (smaller_gap == 0 ||
+        static_cast<double>(larger_gap) / static_cast<double>(smaller_gap) >
+            parameters.chain_max_gap_ratio) {
+        return false;
+    }
     if (current.strand == '+') {
         return predecessor.query_center < current.query_center;
     }
@@ -311,10 +318,10 @@ double gap_cost(const Candidate& predecessor,
     const auto dq = current.query_center > predecessor.query_center
                         ? current.query_center - predecessor.query_center
                         : predecessor.query_center - current.query_center;
-    const double normalized =
+    const double x =
         static_cast<double>(dr > dq ? dr - dq : dq - dr) /
         static_cast<double>(parameters.gap_unit);
-    return parameters.gap_weight * std::log1p(normalized);
+    return parameters.gap_weight * x + std::log2(1.0 + x);
 }
 
 std::vector<std::size_t> chain_group(std::vector<Candidate>& candidates,
@@ -599,6 +606,8 @@ void write_metadata(const std::filesystem::path& path,
     output << "{\n"
            << "  \"chain_predecessors\": " << parameters.predecessor_count << ",\n"
            << "  \"max_chain_gap\": " << parameters.max_chain_gap << ",\n"
+           << "  \"chain_max_gap_ratio\": "
+           << parameters.chain_max_gap_ratio << ",\n"
            << "  \"gap_weight\": " << parameters.gap_weight << ",\n"
            << "  \"gap_unit\": " << parameters.gap_unit << ",\n"
            << "  \"min_chain_anchors\": " << parameters.min_chain_anchors << ",\n"
@@ -636,6 +645,9 @@ ChainingResult build_anchor_chains(
     }
     if (parameters.gap_unit == 0) {
         throw std::runtime_error("gap unit must be greater than zero");
+    }
+    if (parameters.chain_max_gap_ratio < 1.0) {
+        throw std::runtime_error("chain max gap ratio must be at least 1");
     }
     if (parameters.min_chain_anchors == 0) {
         throw std::runtime_error("minimum chain anchor count must be greater than zero");

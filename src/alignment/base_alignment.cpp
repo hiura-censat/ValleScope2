@@ -8,13 +8,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -30,6 +33,7 @@ struct SequenceDeleter {
 };
 
 struct ChainBundle {
+    std::string source;
     std::uint64_t chain_id = 0;
     std::string sample_a;
     std::string sample_b;
@@ -40,6 +44,7 @@ struct ChainBundle {
     std::uint64_t ref_end = 0;
     std::uint64_t query_start = 0;
     std::uint64_t query_end = 0;
+    std::uint64_t patch_count = 0;
 };
 
 struct Interval {
@@ -95,7 +100,8 @@ std::uint64_t parse_u64(const std::string& value, const std::string& column) {
     }
 }
 
-std::vector<ChainBundle> load_chains(const std::filesystem::path& path) {
+std::vector<ChainBundle> load_chains(const std::filesystem::path& path,
+                                     const std::string& source) {
     std::ifstream input(path);
     if (!input) throw std::runtime_error("cannot open chains: " + path.string());
     std::string line;
@@ -119,6 +125,7 @@ std::vector<ChainBundle> load_chains(const std::filesystem::path& path) {
         if (fields.size() <= query_end_column)
             throw std::runtime_error("invalid chain row");
         ChainBundle chain;
+        chain.source = source;
         chain.chain_id = parse_u64(fields[chain_column], "chain_id");
         chain.sample_a = fields[sample_a_column];
         chain.sample_b = fields[sample_b_column];
@@ -132,6 +139,21 @@ std::vector<ChainBundle> load_chains(const std::filesystem::path& path) {
         chains.push_back(std::move(chain));
     }
     return chains;
+}
+
+std::vector<ChainBundle> load_chain_files(
+    const std::vector<std::filesystem::path>& paths) {
+    std::vector<ChainBundle> bundles;
+    for (const auto& path : paths) {
+        const std::string filename = path.filename().string();
+        const std::string source =
+            filename.find("refined") == std::string::npos ? "primary" : "refined";
+        auto loaded = load_chains(path, source);
+        bundles.insert(bundles.end(),
+                       std::make_move_iterator(loaded.begin()),
+                       std::make_move_iterator(loaded.end()));
+    }
+    return bundles;
 }
 
 std::uint64_t sequence_length(faidx_t* index, const std::string& sequence_id) {
@@ -349,22 +371,243 @@ Alignment global_align_wfa2(const std::string& ref,
                            aligner.getAlignmentScore());
 }
 
+std::uint32_t levenshtein_distance(const std::string& a,
+                                   const std::string& b) {
+    std::vector<std::uint32_t> previous(b.size() + 1);
+    std::vector<std::uint32_t> current(b.size() + 1);
+    for (std::size_t j = 0; j <= b.size(); ++j) {
+        previous[j] = static_cast<std::uint32_t>(j);
+    }
+    for (std::size_t i = 1; i <= a.size(); ++i) {
+        current[0] = static_cast<std::uint32_t>(i);
+        for (std::size_t j = 1; j <= b.size(); ++j) {
+            const auto substitution =
+                previous[j - 1] + (a[i - 1] == b[j - 1] ? 0U : 1U);
+            const auto insertion = current[j - 1] + 1U;
+            const auto deletion = previous[j] + 1U;
+            current[j] = std::min({substitution, insertion, deletion});
+        }
+        previous.swap(current);
+    }
+    return previous[b.size()];
+}
+
+double sequence_identity(const std::string& ref,
+                         const std::string& query) {
+    const auto denominator = std::max(ref.size(), query.size());
+    if (denominator == 0) return 1.0;
+    const auto distance = levenshtein_distance(ref, query);
+    return 1.0 - static_cast<double>(distance) /
+                     static_cast<double>(denominator);
+}
+
+std::uint64_t positive_gap(const std::uint64_t left_end,
+                           const std::uint64_t right_start) {
+    return right_start > left_end ? right_start - left_end : 0;
+}
+
+bool same_bundle_track(const ChainBundle& left,
+                       const ChainBundle& right) {
+    return left.sample_a == right.sample_a &&
+           left.sample_b == right.sample_b &&
+           left.sequence_a == right.sequence_a &&
+           left.sequence_b == right.sequence_b &&
+           left.strand == right.strand;
+}
+
+std::uint64_t query_gap_between(const ChainBundle& left,
+                                const ChainBundle& right) {
+    if (left.strand == '+') return positive_gap(left.query_end, right.query_start);
+    return right.query_end < left.query_start ? left.query_start - right.query_end : 0;
+}
+
+bool gap_ratio_is_allowed(const std::uint64_t ref_gap,
+                          const std::uint64_t query_gap,
+                          const double max_ratio) {
+    const auto smaller = std::min(ref_gap, query_gap);
+    const auto larger = std::max(ref_gap, query_gap);
+    if (larger == 0) return true;
+    if (smaller == 0) return false;
+    return static_cast<double>(larger) / static_cast<double>(smaller) <=
+           max_ratio;
+}
+
+std::string fetch_patch_query(faidx_t* index,
+                              const std::string& sequence_id,
+                              const Interval& interval,
+                              const char strand) {
+    auto sequence = fetch_interval(index, sequence_id, interval);
+    if (strand == '-') sequence = reverse_complement(sequence);
+    return sequence;
+}
+
+bool extension_window_matches(faidx_t* index,
+                              const ChainBundle& bundle,
+                              const Interval& ref_interval,
+                              const Interval& query_interval,
+                              const BaseAlignmentParameters& parameters) {
+    const auto ref = fetch_interval(index, bundle.sequence_a, ref_interval);
+    const auto query = fetch_patch_query(
+        index, bundle.sequence_b, query_interval, bundle.strand);
+    return sequence_identity(ref, query) >= parameters.min_patch_identity;
+}
+
+bool can_patch_gap(faidx_t* index,
+                   const ChainBundle& left,
+                   const ChainBundle& right,
+                   const BaseAlignmentParameters& parameters) {
+    if (!same_bundle_track(left, right)) return false;
+    if (right.ref_start < left.ref_end) return false;
+
+    const auto ref_gap = right.ref_start - left.ref_end;
+    const auto query_gap = query_gap_between(left, right);
+    if (ref_gap > parameters.max_patch_gap_bp ||
+        query_gap > parameters.max_patch_gap_bp) {
+        return false;
+    }
+    if (!gap_ratio_is_allowed(ref_gap, query_gap,
+                              parameters.max_patch_gap_ratio)) {
+        return false;
+    }
+    if (ref_gap == 0 && query_gap == 0) return true;
+
+    std::uint64_t left_ref_extension = 0;
+    std::uint64_t left_query_extension = 0;
+    std::uint64_t right_ref_extension = 0;
+    std::uint64_t right_query_extension = 0;
+
+    auto gap_is_closed = [&]() {
+        return left_ref_extension + right_ref_extension >= ref_gap ||
+               left_query_extension + right_query_extension >= query_gap;
+    };
+
+    while (!gap_is_closed()) {
+        const auto remaining_ref =
+            ref_gap - std::min(ref_gap, left_ref_extension + right_ref_extension);
+        const auto remaining_query =
+            query_gap - std::min(query_gap,
+                                 left_query_extension + right_query_extension);
+        if (remaining_ref == 0 || remaining_query == 0) return true;
+
+        const auto left_ref_window =
+            std::min<std::uint64_t>(parameters.patch_window_bp, remaining_ref);
+        const auto left_query_window =
+            std::min<std::uint64_t>(parameters.patch_window_bp, remaining_query);
+        Interval left_ref{left.ref_end + left_ref_extension,
+                          left.ref_end + left_ref_extension + left_ref_window};
+        Interval left_query;
+        if (left.strand == '+') {
+            left_query = {left.query_end + left_query_extension,
+                          left.query_end + left_query_extension + left_query_window};
+        } else {
+            left_query = {left.query_start - left_query_extension -
+                              left_query_window,
+                          left.query_start - left_query_extension};
+        }
+        if (!extension_window_matches(index, left, left_ref, left_query,
+                                      parameters)) {
+            return false;
+        }
+        left_ref_extension += left_ref_window;
+        left_query_extension += left_query_window;
+        if (gap_is_closed()) return true;
+
+        const auto after_left_ref =
+            ref_gap - std::min(ref_gap, left_ref_extension + right_ref_extension);
+        const auto after_left_query =
+            query_gap - std::min(query_gap,
+                                 left_query_extension + right_query_extension);
+        const auto right_ref_window =
+            std::min<std::uint64_t>(parameters.patch_window_bp, after_left_ref);
+        const auto right_query_window =
+            std::min<std::uint64_t>(parameters.patch_window_bp, after_left_query);
+        Interval right_ref{right.ref_start - right_ref_extension -
+                               right_ref_window,
+                           right.ref_start - right_ref_extension};
+        Interval right_query;
+        if (right.strand == '+') {
+            right_query = {right.query_start - right_query_extension -
+                               right_query_window,
+                           right.query_start - right_query_extension};
+        } else {
+            right_query = {right.query_end + right_query_extension,
+                           right.query_end + right_query_extension +
+                               right_query_window};
+        }
+        if (!extension_window_matches(index, right, right_ref, right_query,
+                                      parameters)) {
+            return false;
+        }
+        right_ref_extension += right_ref_window;
+        right_query_extension += right_query_window;
+    }
+    return true;
+}
+
+std::vector<ChainBundle> patch_adjacent_bundles(
+    std::vector<ChainBundle> bundles,
+    faidx_t* index,
+    const BaseAlignmentParameters& parameters,
+    std::uint64_t& patch_count) {
+    patch_count = 0;
+    std::sort(bundles.begin(), bundles.end(),
+              [](const ChainBundle& left, const ChainBundle& right) {
+                  return std::tie(left.sample_a, left.sample_b, left.sequence_a,
+                                  left.sequence_b, left.strand, left.ref_start,
+                                  left.ref_end, left.query_start,
+                                  left.query_end, left.source, left.chain_id) <
+                         std::tie(right.sample_a, right.sample_b, right.sequence_a,
+                                  right.sequence_b, right.strand, right.ref_start,
+                                  right.ref_end, right.query_start,
+                                  right.query_end, right.source, right.chain_id);
+              });
+
+    std::vector<ChainBundle> patched;
+    for (const auto& bundle : bundles) {
+        if (patched.empty() ||
+            !can_patch_gap(index, patched.back(), bundle, parameters)) {
+            patched.push_back(bundle);
+            continue;
+        }
+        auto& merged = patched.back();
+        merged.ref_start = std::min(merged.ref_start, bundle.ref_start);
+        merged.ref_end = std::max(merged.ref_end, bundle.ref_end);
+        merged.query_start = std::min(merged.query_start, bundle.query_start);
+        merged.query_end = std::max(merged.query_end, bundle.query_end);
+        merged.patch_count += bundle.patch_count + 1;
+        merged.source = "patched";
+        ++patch_count;
+    }
+    return patched;
+}
+
 void write_metadata(const std::filesystem::path& path,
                     const BaseAlignmentParameters& parameters,
                     const BaseAlignmentResult& result,
-                    const std::filesystem::path& chains,
+                    const std::vector<std::filesystem::path>& chain_files,
                     const std::filesystem::path& fasta) {
     std::ofstream output(path);
     if (!output) throw std::runtime_error("cannot create base alignment metadata");
     output << "{\n"
-           << "  \"input_chains\": \"" << chains.string() << "\",\n"
+           << "  \"input_chains\": [";
+    for (std::size_t i = 0; i < chain_files.size(); ++i) {
+        if (i) output << ", ";
+        output << "\"" << chain_files[i].string() << "\"";
+    }
+    output << "],\n"
            << "  \"fasta\": \"" << fasta.string() << "\",\n"
            << "  \"alignment_mode\": \"global\",\n"
            << "  \"aligner\": \"WFA2-lib\",\n"
            << "  \"anchor_length\": " << parameters.anchor_length << ",\n"
            << "  \"max_bundle_align_bp\": " << parameters.max_bundle_align_bp << ",\n"
            << "  \"max_fallback_cells\": " << parameters.max_fallback_cells << ",\n"
+           << "  \"max_patch_gap_bp\": " << parameters.max_patch_gap_bp << ",\n"
+           << "  \"patch_window_bp\": " << parameters.patch_window_bp << ",\n"
+           << "  \"min_patch_identity\": " << parameters.min_patch_identity << ",\n"
+           << "  \"max_patch_gap_ratio\": " << parameters.max_patch_gap_ratio << ",\n"
            << "  \"bundle_count\": " << result.bundle_count << ",\n"
+           << "  \"patched_bundle_count\": " << result.patched_bundle_count << ",\n"
+           << "  \"patch_count\": " << result.patch_count << ",\n"
            << "  \"aligned_bundle_count\": " << result.aligned_bundle_count << ",\n"
            << "  \"skipped_bundle_count\": " << result.skipped_bundle_count << "\n"
            << "}\n";
@@ -373,19 +616,25 @@ void write_metadata(const std::filesystem::path& path,
 }  // namespace
 
 BaseAlignmentResult align_chain_bundles(
-    const std::filesystem::path& chains,
+    const std::vector<std::filesystem::path>& chain_files,
     const std::filesystem::path& fasta,
     const std::filesystem::path& fasta_index,
     const std::filesystem::path& paf_output,
     const std::filesystem::path& metadata_output,
     const BaseAlignmentParameters& parameters) {
-    const auto bundles = load_chains(chains);
+    const auto loaded_bundles = load_chain_files(chain_files);
     BaseAlignmentResult result;
-    result.bundle_count = bundles.size();
 
     std::unique_ptr<faidx_t, FaiDeleter> index(
         fai_load3(fasta.c_str(), fasta_index.c_str(), nullptr, 0));
     if (!index) throw std::runtime_error("cannot load FASTA index for base alignment");
+
+    auto bundles = patch_adjacent_bundles(
+        loaded_bundles, index.get(), parameters, result.patch_count);
+    result.bundle_count = bundles.size();
+    result.patched_bundle_count =
+        loaded_bundles.size() > bundles.size() ? loaded_bundles.size() - bundles.size()
+                                               : 0;
 
     std::ofstream paf(paf_output);
     if (!paf) throw std::runtime_error("cannot create bundle alignment PAF");
@@ -430,13 +679,15 @@ BaseAlignmentResult align_chain_bundles(
             << alignment.block_length << "\t60"
             << "\tcg:Z:" << alignment.cigar
             << "\tch:i:" << bundle.chain_id
+            << "\tbt:Z:" << bundle.source
+            << "\tpg:i:" << bundle.patch_count
             << "\tas:i:" << alignment.score
             << "\tsa:Z:" << bundle.sample_a
             << "\tsb:Z:" << bundle.sample_b
             << '\n';
         ++result.aligned_bundle_count;
     }
-    write_metadata(metadata_output, parameters, result, chains, fasta);
+    write_metadata(metadata_output, parameters, result, chain_files, fasta);
     return result;
 }
 

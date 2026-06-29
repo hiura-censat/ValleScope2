@@ -160,9 +160,11 @@ void run_anchor_detection(const ProgramOptions& options) {
     if (options.base_align) {
         const auto base_alignment_start = std::chrono::steady_clock::now();
         base_alignment = align_chain_bundles(
-            chains, genmap.input_fasta, context_index, bundle_alignments,
+            {chains, refined_chains}, genmap.input_fasta, context_index, bundle_alignments,
             bundle_alignment_metadata,
-            {options.anchor_length, options.max_bundle_align_bp});
+            {options.anchor_length, options.max_bundle_align_bp, 25000000,
+             options.max_patch_gap_bp, options.patch_window_bp,
+             options.min_patch_identity, options.max_patch_gap_ratio});
         base_alignment_time =
             std::chrono::steady_clock::now() - base_alignment_start;
     }
@@ -242,7 +244,10 @@ void run_anchor_detection(const ProgramOptions& options) {
                   << "Base-aligned " << base_alignment.aligned_bundle_count
                   << " of " << base_alignment.bundle_count
                   << " bundle(s); skipped "
-                  << base_alignment.skipped_bundle_count << " in "
+                  << base_alignment.skipped_bundle_count
+                  << "; patched " << base_alignment.patch_count
+                  << " gap(s) into " << base_alignment.patched_bundle_count
+                  << " merged bundle(s) in "
                   << base_alignment_time.count() << " s.\n";
     }
     std::cerr

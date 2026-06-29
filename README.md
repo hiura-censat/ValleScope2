@@ -155,7 +155,8 @@ Chaining and refinement:
 ```text
 --chain-predecessors INT           default: 50
 --max-chain-gap INT                default: 50000
---gap-weight FLOAT                 default: 1
+--chain-max-gap-ratio FLOAT        default: 2
+--gap-weight FLOAT                 default: 0.002
 --min-chain-anchors INT            default: 10
 --min-chain-score FLOAT            default: 0
 --refinement-window INT            default: 50000
@@ -166,7 +167,11 @@ Base-level bundle alignment:
 
 ```text
 --base-align
---max-bundle-align-bp INT          default: 100000
+--max-bundle-align-bp INT          default: 1000000
+--max-patch-gap-bp INT            default: 70000
+--patch-window-bp INT             default: 1000
+--min-patch-identity FLOAT        default: 0.85
+--max-patch-gap-ratio FLOAT       default: 2
 ```
 
 ## Current workflow
@@ -328,6 +333,8 @@ coordinate order are considered. A predecessor is valid only if target and
 query order are both consistent with the assignment strand.
 In addition, both the target-side gap and query-side gap between adjacent
 chained anchors must be no larger than `--max-chain-gap`.
+The ratio `max(dr, dq) / min(dr, dq)` must also be no larger than
+`--chain-max-gap-ratio`.
 
 The chaining recurrence is:
 
@@ -338,8 +345,9 @@ dp[i] = candidate_score[i] + max_j { dp[j] - gap_cost(j, i) }
 where:
 
 ```text
-gap_cost = gap_weight * log1p(abs(dr - dq) / gap_unit)
-gap_unit = distance_bin_size
+x = abs(dr - dq) / gap_unit
+gap_cost = gap_weight * x + log2(1 + x)
+gap_unit = 10
 ```
 
 Multiple chains are extracted iteratively after removing used candidates.
@@ -374,9 +382,18 @@ refined_chains.meta.json
 When `--base-align` is specified, ValleScope2 extracts the ref/query interval
 for each first-pass chain, expands both sides by `anchor_length / 2`, and runs
 WFA2-lib end-to-end global alignment.
+Both first-pass chains (`chains.tsv`) and refined chains (`refined_chains.tsv`)
+are used as bundle intervals.
 
 For `-` strand chains, the query interval is reverse-complemented before
 alignment.
+
+Before WFA2 alignment, adjacent bundles on the same sample pair, sequence pair,
+and strand are tested for gap patching. If both the ref and query gaps are at
+most `--max-patch-gap-bp`, the gap ratio is not larger than
+`--max-patch-gap-ratio`, and extension windows keep at least
+`--min-patch-identity` by Levenshtein edit distance, the two bundles are merged
+and aligned as one patched bundle.
 
 Large intervals are skipped if either side exceeds:
 
@@ -396,6 +413,8 @@ bundle_alignments.meta.json
 ```text
 cg:Z:<CIGAR>
 ch:i:<chain_id>
+bt:Z:<primary|refined|patched>
+pg:i:<number_of_patched_gaps>
 as:i:<alignment_score>
 ```
 
