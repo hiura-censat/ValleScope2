@@ -359,10 +359,17 @@ Alignment summarize_cigar(const std::string& cigar,
     return alignment;
 }
 
+std::uint64_t gibibytes_to_bytes(const std::uint32_t gibibytes) {
+    return static_cast<std::uint64_t>(gibibytes) * 1024ULL * 1024ULL * 1024ULL;
+}
+
 Alignment global_align_wfa2(const std::string& ref,
-                            const std::string& query) {
+                            const std::string& query,
+                            const std::uint32_t max_memory_gb) {
     wfa::WFAlignerGapAffine aligner(
         4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
+    const auto max_memory = gibibytes_to_bytes(max_memory_gb);
+    aligner.setMaxMemory(max_memory, max_memory);
     const auto status = aligner.alignEnd2End(query, ref);
     if (status < 0) {
         throw std::runtime_error("WFA2 alignment failed");
@@ -589,6 +596,7 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"max_patch_gap_bp\": " << parameters.max_patch_gap_bp << ",\n"
            << "  \"patch_window_bp\": " << parameters.patch_window_bp << ",\n"
            << "  \"min_patch_identity\": " << parameters.min_patch_identity << ",\n"
+           << "  \"max_wfa_memory_gb\": " << parameters.max_wfa_memory_gb << ",\n"
            << "  \"bundle_count\": " << result.bundle_count << ",\n"
            << "  \"patched_bundle_count\": " << result.patched_bundle_count << ",\n"
            << "  \"patch_count\": " << result.patch_count << ",\n"
@@ -644,7 +652,8 @@ BaseAlignmentResult align_chain_bundles(
 
         Alignment alignment;
         try {
-            alignment = global_align_wfa2(ref, query);
+            alignment = global_align_wfa2(ref, query,
+                                          parameters.max_wfa_memory_gb);
         } catch (const std::exception&) {
             try {
                 alignment = global_align_fallback(

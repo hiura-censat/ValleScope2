@@ -45,6 +45,7 @@ void print_usage(std::ostream& output) {
            << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
            << "  --patch-window-bp INT  Extension window size for gap patching [1000]\n"
            << "  --min-patch-identity FLOAT  Minimum extension identity for gap patching [0.85]\n"
+           << "  --max-wfa-memory-gb INT  WFA2 memory limit in GB [64]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
            << "  --debug  Keep intermediate FASTA, index, and GenMap files\n"
@@ -188,6 +189,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--min-patch-identity")
             options.min_patch_identity =
                 parse_double(argc, argv, index, argument);
+        else if (argument == "--max-wfa-memory-gb")
+            options.max_wfa_memory_gb =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "-t" || argument == "--threads")
             options.genmap.threads = parse_unsigned(argc, argv, index, argument);
         else if (argument == "--genmap") {
@@ -233,6 +237,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("patch window size must be greater than zero");
     if (options.min_patch_identity < 0.0 || options.min_patch_identity > 1.0)
         throw std::runtime_error("minimum patch identity must be between 0 and 1");
+    if (options.max_wfa_memory_gb == 0)
+        throw std::runtime_error("maximum WFA memory must be greater than zero");
     if (options.context_radius_tokens >
         (std::numeric_limits<std::uint32_t>::max() - 1) / 2) {
         throw std::runtime_error("context radius is too large");

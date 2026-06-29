@@ -13,6 +13,7 @@ struct BaseAlignmentParameters {
     std::uint32_t max_patch_gap_bp = 70000;
     std::uint32_t patch_window_bp = 1000;
     double min_patch_identity = 0.85;
+    std::uint32_t max_wfa_memory_gb = 64;
 };
 
 struct BaseAlignmentResult {

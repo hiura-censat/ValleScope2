@@ -173,6 +173,7 @@ Base-level bundle alignment:
 --max-patch-gap-bp INT            default: 70000
 --patch-window-bp INT             default: 1000
 --min-patch-identity FLOAT        default: 0.85
+--max-wfa-memory-gb INT           default: 64
 ```
 
 ## Current workflow
@@ -401,6 +402,12 @@ Large intervals are skipped if either side exceeds:
 
 ```text
 --max-bundle-align-bp
+```
+
+WFA2-lib is also given a per-alignment memory limit:
+
+```text
+--max-wfa-memory-gb
 ```
 
 Final output:

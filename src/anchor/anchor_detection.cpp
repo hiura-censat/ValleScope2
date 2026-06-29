@@ -170,7 +170,7 @@ void run_anchor_detection(const ProgramOptions& options) {
             bundle_alignment_metadata,
             {options.anchor_length, options.max_bundle_align_bp, 25000000,
              options.max_patch_gap_bp, options.patch_window_bp,
-             options.min_patch_identity});
+             options.min_patch_identity, options.max_wfa_memory_gb});
         base_alignment_time =
             std::chrono::steady_clock::now() - base_alignment_start;
     }
@@ -182,8 +182,12 @@ void run_anchor_detection(const ProgramOptions& options) {
          genmap.command, genmap.version,
          options.input_paths, genmap.input_fasta},
         selection);
-    std::filesystem::copy_file(genmap.log, genmap_log,
-                               std::filesystem::copy_options::overwrite_existing);
+    if (std::filesystem::absolute(genmap.log) !=
+        std::filesystem::absolute(genmap_log)) {
+        std::filesystem::copy_file(
+            genmap.log, genmap_log,
+            std::filesystem::copy_options::overwrite_existing);
+    }
 
     for (const auto& path : {spool.candidate_path(), spool.group_path()}) {
         std::error_code error;
