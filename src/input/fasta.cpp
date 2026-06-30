@@ -34,10 +34,6 @@ std::string sequence_name(const std::string_view header) {
     const auto end = header.find_first_of(" \t");
     const std::string name(header.substr(0, end));
     if (name.empty()) throw std::runtime_error("FASTA header has no sequence name");
-    if (name.find('#') != std::string::npos) {
-        throw std::runtime_error(
-            "sequence name contains reserved character '#': " + name);
-    }
     return name;
 }
 
@@ -78,7 +74,7 @@ void append_fasta(const std::filesystem::path& input_path,
             current = SequenceRecord{};
             current.sample = sample;
             current.original_id = sequence_name(text.substr(1));
-            current.sequence_id = sample + "#1#" + current.original_id;
+            current.sequence_id = current.original_id;
             current.source_fasta = input_path;
             current.role = role;
             output << '>' << current.sequence_id << '\n';

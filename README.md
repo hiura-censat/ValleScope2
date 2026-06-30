@@ -187,11 +187,15 @@ ValleScope2 supports three input modes:
 - two FASTAs: target-query comparison
 - `--combine` with two or more FASTAs: combine inputs, then self comparison
 
-In combine mode, sequence IDs are normalized to:
+ValleScope2 uses the first token of each FASTA header as the sequence ID,
+matching the convention used by common aligners. For example:
 
 ```text
-sample#1#original_id
+>chr1 description...
 ```
+
+is used as `chr1`. Sequence IDs must be unique across combined inputs; ValleScope2
+does not automatically rename duplicated FASTA headers.
 
 With `--debug`, the prepared FASTA, `.fai`, and `sequences.tsv` are kept in
 `vallescope2-debug/`.

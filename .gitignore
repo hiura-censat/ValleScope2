@@ -5,6 +5,9 @@ Testing/
 
 # Large input data
 data/
+runs/
+logs/
+results/
 
 # ValleScope2 outputs
 vallescope2-debug/

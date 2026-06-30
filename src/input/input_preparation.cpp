@@ -23,7 +23,7 @@ void add_indexed_sequences(SequenceCatalog& catalog,
                            const std::string& role) {
     for (const auto& sequence :
          read_fasta_index(prepared.fasta, prepared.index, prepared.gzi)) {
-        catalog.add({sample + "#1#" + sequence.name,
+        catalog.add({sequence.name,
                      sample,
                      "1",
                      sequence.name,
