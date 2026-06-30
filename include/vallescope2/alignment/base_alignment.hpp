@@ -26,6 +26,7 @@ struct BaseAlignmentResult {
     std::uint64_t patch_count = 0;
     std::uint64_t aligned_bundle_count = 0;
     std::uint64_t anchor_guided_alignment_count = 0;
+    std::uint64_t whole_bundle_alignment_count = 0;
     std::uint64_t strand_flipped_bundle_count = 0;
     std::uint64_t strand_conflict_bundle_count = 0;
     std::uint64_t forward_anchor_match_count = 0;

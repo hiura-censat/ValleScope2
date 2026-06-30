@@ -114,27 +114,32 @@ BaseAlignmentResult align_chain_bundles(
         }
 
         Alignment alignment;
+        std::string alignment_mode = "anchor_guided";
         try {
             const auto guided = anchor_guided_alignment(
                 index.get(), bundle, anchor_store, ref_interval, query_interval,
                 query_length, strand_summary.effective_strand, parameters);
             if (!guided) {
-                skipped_bundles
-                    << "no_valid_anchor\t" << bundle.sample_a << '\t'
-                    << bundle.sample_b << '\t' << bundle.sequence_a << '\t'
-                    << bundle.sequence_b << '\t' << bundle.chain_id << '\t'
-                    << bundle.source << '\t' << bundle.strand << '\t'
-                    << strand_summary.effective_strand << '\t'
-                    << strand_summary.forward_count << '\t'
-                    << strand_summary.reverse_count << '\t'
-                    << strand_summary.incompatible_count << '\t'
-                    << bundle.ref_start << '\t' << bundle.ref_end << '\t'
-                    << bundle.query_start << '\t' << bundle.query_end << '\n';
                 ++result.no_valid_anchor_bundle_count;
-                ++result.skipped_bundle_count;
-                continue;
+                Interval query_oriented_interval = query_interval;
+                if (strand_summary.effective_strand == '-') {
+                    query_oriented_interval =
+                        {query_length - query_interval.end,
+                         query_length - query_interval.start};
+                }
+                const auto ref_sequence = fetch_interval(
+                    index.get(), bundle.sequence_a, ref_interval);
+                const auto query_sequence = fetch_oriented_query_interval(
+                    index.get(), bundle.sequence_b, query_oriented_interval,
+                    query_length, strand_summary.effective_strand);
+                alignment = align_segment(ref_sequence, query_sequence,
+                                          parameters);
+                alignment_mode = "whole_bundle";
+                ++result.whole_bundle_alignment_count;
+            } else {
+                alignment = *guided;
+                ++result.anchor_guided_alignment_count;
             }
-            alignment = *guided;
         } catch (const std::exception&) {
             skipped_bundles
                 << "segment_alignment_failed\t" << bundle.sample_a << '\t'
@@ -163,7 +168,7 @@ BaseAlignmentResult align_chain_bundles(
             << "\tbt:Z:" << bundle.source
             << "\tpg:i:" << bundle.patch_count
             << "\ttr:i:" << bundle.trim_count
-            << "\tam:Z:anchor_guided"
+            << "\tam:Z:" << alignment_mode
             << "\tos:Z:" << bundle.strand
             << "\tes:Z:" << strand_summary.effective_strand
             << "\taf:i:" << strand_summary.forward_count
@@ -174,7 +179,6 @@ BaseAlignmentResult align_chain_bundles(
             << "\tsb:Z:" << bundle.sample_b
             << '\n';
         ++result.aligned_bundle_count;
-        ++result.anchor_guided_alignment_count;
     }
     write_metadata(metadata_output, parameters, result, chain_files, fasta);
     return result;

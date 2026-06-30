@@ -40,6 +40,8 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"aligned_bundle_count\": " << result.aligned_bundle_count << ",\n"
            << "  \"anchor_guided_alignment_count\": "
            << result.anchor_guided_alignment_count << ",\n"
+           << "  \"whole_bundle_alignment_count\": "
+           << result.whole_bundle_alignment_count << ",\n"
            << "  \"strand_flipped_bundle_count\": "
            << result.strand_flipped_bundle_count << ",\n"
            << "  \"strand_conflict_bundle_count\": "
