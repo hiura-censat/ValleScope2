@@ -58,6 +58,7 @@ int main() {
         const auto bundle_alignment_metadata =
             directory / "bundle_alignments.meta.json";
         const auto base_chains = directory / "base_chains.tsv";
+        const auto base_chain_anchors = directory / "base_chain_anchors.tsv";
         {
             std::ofstream output(fasta);
             output << ">chr1\nACGTACGTNNACGT\n";
@@ -285,8 +286,16 @@ int main() {
                       "\tref_start\tref_end\tquery_start\tquery_end\n"
                    << "0\tsampleA\tsampleB\tchr1\tchr1\t+\t1\t1\t0\t6\t0\t6\n";
         }
+        {
+            std::ofstream output(base_chain_anchors);
+            output << "chain_id\trank\tsample_a\tsample_b\tanchor_a\tanchor_b"
+                      "\tref_center\tquery_center\tassign_strand"
+                      "\tcandidate_score\tsupport_direction\n"
+                   << "0\t0\tsampleA\tsampleB\ta1\ta1\t3\t3\t+\t1\tboth\n";
+        }
         const auto base_alignment_result = vallescope2::align_chain_bundles(
-            {base_chains}, fasta, index, bundle_paf, bundle_alignment_metadata,
+            {base_chains}, {base_chain_anchors}, grouped, fasta, index,
+            bundle_paf, bundle_alignment_metadata,
             {6, 1000, 1000000});
         require(base_alignment_result.aligned_bundle_count >= 1,
                 "bundle base alignment was not produced");

@@ -166,7 +166,8 @@ void run_anchor_detection(const ProgramOptions& options) {
     if (options.base_align) {
         const auto base_alignment_start = std::chrono::steady_clock::now();
         base_alignment = align_chain_bundles(
-            {chains, refined_chains}, genmap.input_fasta, context_index, bundle_alignments,
+            {chains, refined_chains}, {chain_anchors, refined_chain_anchors},
+            grouped_anchors, genmap.input_fasta, context_index, bundle_alignments,
             bundle_alignment_metadata,
             {options.anchor_length, options.max_bundle_align_bp, 25000000,
              options.max_patch_gap_bp, options.patch_window_bp,
@@ -274,7 +275,9 @@ void run_anchor_detection(const ProgramOptions& options) {
                   << " gap(s) into " << base_alignment.patched_bundle_count
                   << " merged bundle(s); final-trimmed "
                   << base_alignment.bundle_trim_count
-                  << " bundle(s) before alignment in "
+                  << " bundle(s) before alignment; "
+                  << base_alignment.anchor_guided_alignment_count
+                  << " anchor-guided alignment(s) in "
                   << base_alignment_time.count() << " s.\n";
     }
     if (options.debug) std::cerr << "GenMap log: " << genmap_log << '\n';

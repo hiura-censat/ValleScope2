@@ -382,10 +382,11 @@ refined_chains.meta.json
 
 ### 9. Bundle-level base alignment
 
-By default, ValleScope2 extracts the ref/query interval for each first-pass
-chain, expands both sides by `anchor_length / 2`, and runs WFA2-lib end-to-end
-global alignment. The final PAF is written to standard output, so users can
-choose the filename with shell redirection, for example
+By default, ValleScope2 uses chain anchor pairs as fixed points for
+anchor-guided base alignment. Inter-anchor segments are aligned with WFA2-lib,
+while anchor sequences are first checked against the FASTA sequence and then
+emitted as exact-match CIGAR operations. The final PAF is written to standard
+output, so users can choose the filename with shell redirection, for example
 `vallescope2 reference.fa query.fa > aln.paf`.
 Both first-pass chains (`chains.tsv`) and refined chains (`refined_chains.tsv`)
 are used as bundle intervals.
@@ -431,11 +432,24 @@ ch:i:<chain_id>
 bt:Z:<primary|refined|patched>
 pg:i:<number_of_patched_gaps>
 tr:i:<number_of_bundle_trim_events>
+am:Z:anchor_guided
+os:Z:<original_assigned_strand>
+es:Z:<effective_sequence_inferred_strand>
+af:i:<forward_anchor_match_count>
+ar:i:<reverse_anchor_match_count>
+ai:i:<incompatible_anchor_match_count>
 as:i:<alignment_score>
 ```
 
-This is currently whole-bundle global alignment. It does not yet split bundles
-by fixed anchor-pair points.
+Bundles without any validated fixed anchor pair are skipped rather than being
+aligned with whole-bundle fallback.
+
+In debug mode, strand inference and skipped-bundle reports are also written:
+
+```text
+strand_conflicts.tsv
+skipped_bundles.tsv
+```
 
 ## Output summary
 

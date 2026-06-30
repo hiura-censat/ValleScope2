@@ -25,11 +25,21 @@ struct BaseAlignmentResult {
     std::uint64_t patched_bundle_count = 0;
     std::uint64_t patch_count = 0;
     std::uint64_t aligned_bundle_count = 0;
+    std::uint64_t anchor_guided_alignment_count = 0;
+    std::uint64_t strand_flipped_bundle_count = 0;
+    std::uint64_t strand_conflict_bundle_count = 0;
+    std::uint64_t forward_anchor_match_count = 0;
+    std::uint64_t reverse_anchor_match_count = 0;
+    std::uint64_t incompatible_anchor_match_count = 0;
+    std::uint64_t no_valid_anchor_bundle_count = 0;
+    std::uint64_t segment_alignment_failed_count = 0;
     std::uint64_t skipped_bundle_count = 0;
 };
 
 BaseAlignmentResult align_chain_bundles(
     const std::vector<std::filesystem::path>& chain_files,
+    const std::vector<std::filesystem::path>& chain_anchor_files,
+    const std::filesystem::path& grouped_anchors,
     const std::filesystem::path& fasta,
     const std::filesystem::path& fasta_index,
     const std::filesystem::path& paf_output,

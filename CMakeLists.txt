@@ -29,7 +29,12 @@ set_target_properties(HTSlib::HTSlib PROPERTIES
 )
 
 add_executable(vallescope2
+    src/alignment/alignment_engine.cpp
+    src/alignment/anchor_guided_alignment.cpp
     src/alignment/base_alignment.cpp
+    src/alignment/base_alignment_io.cpp
+    src/alignment/base_alignment_output.cpp
+    src/alignment/bundle_postprocessing.cpp
     src/anchor/anchor_detection.cpp
     src/anchor/anchor_output.cpp
     src/anchor/anchor_selection.cpp
@@ -75,7 +80,12 @@ install(TARGETS vallescope2 RUNTIME DESTINATION bin)
 if(BUILD_TESTING)
     add_executable(anchor_grouping_test
         test/anchor_grouping_test.cpp
+        src/alignment/alignment_engine.cpp
+        src/alignment/anchor_guided_alignment.cpp
         src/alignment/base_alignment.cpp
+        src/alignment/base_alignment_io.cpp
+        src/alignment/base_alignment_output.cpp
+        src/alignment/bundle_postprocessing.cpp
         src/bundle/chaining.cpp
         src/bundle/chaining_dp.cpp
         src/bundle/chaining_io.cpp
