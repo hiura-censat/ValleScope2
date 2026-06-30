@@ -7,7 +7,7 @@ namespace vallescope2 {
 
 struct ChainingParameters {
     std::uint32_t predecessor_count = 50;
-    std::uint32_t max_chain_gap = 50000;
+    std::uint32_t max_chain_gap = 500;
     double chain_max_gap_ratio = 1.2;
     double gap_weight = 0.002;
     std::uint32_t gap_unit = 10;

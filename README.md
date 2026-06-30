@@ -131,8 +131,8 @@ Anchor detection:
 
 ```text
 -al, --anchor-length INT           default: 50
--md, --min-center-distance INT     default: 100
--td, --target-density INT          default: 6000 anchors/Mb
+-md, --min-center-distance INT     default: 50
+-td, --target-density INT          default: 15000 anchors/Mb
 ```
 
 Structural context:
@@ -155,7 +155,7 @@ Chaining and refinement:
 
 ```text
 --chain-predecessors INT           default: 50
---max-chain-gap INT                default: 50000
+--max-chain-gap INT                default: 500
 --chain-max-gap-ratio FLOAT        default: 1.2
 --gap-weight FLOAT                 default: 0.002
 --min-chain-anchors INT            default: 10

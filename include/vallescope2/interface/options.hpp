@@ -21,8 +21,8 @@ struct ProgramOptions {
     std::uint32_t patch_window_bp = 1000;
     double min_patch_identity = 0.85;
     std::uint32_t max_wfa_memory_gb = 64;
-    std::uint32_t min_center_distance = 100;
-    std::uint32_t target_density = 6000;
+    std::uint32_t min_center_distance = 50;
+    std::uint32_t target_density = 15000;
     std::uint32_t distance_bin_size = 10;
     std::uint32_t context_radius_tokens = 50;
     AssignmentParameters assignment;

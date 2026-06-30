@@ -8,8 +8,8 @@
 namespace vallescope2 {
 
 struct AnchorSelectionParameters {
-    std::uint32_t min_center_distance = 100;
-    std::uint32_t target_density = 6000;
+    std::uint32_t min_center_distance = 50;
+    std::uint32_t target_density = 15000;
 };
 
 struct AnchorCandidate {

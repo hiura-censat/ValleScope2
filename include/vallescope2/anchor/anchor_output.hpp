@@ -13,8 +13,8 @@ namespace vallescope2 {
 
 struct AnchorMetadata {
     std::uint32_t anchor_length = 50;
-    std::uint32_t min_center_distance = 100;
-    std::uint32_t target_density = 6000;
+    std::uint32_t min_center_distance = 50;
+    std::uint32_t target_density = 15000;
     std::uint64_t sequence_length = 0;
     std::uint32_t genmap_k = 6;
     std::uint32_t genmap_e = 0;
