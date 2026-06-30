@@ -156,10 +156,11 @@ Chaining and refinement:
 ```text
 --chain-predecessors INT           default: 50
 --max-chain-gap INT                default: 50000
---chain-max-gap-ratio FLOAT        default: 2
+--chain-max-gap-ratio FLOAT        default: 1.2
 --gap-weight FLOAT                 default: 0.002
 --min-chain-anchors INT            default: 10
 --min-chain-score FLOAT            default: 0
+--chain-trim-overlap FLOAT         default: 0.01
 --refinement-window INT            default: 50000
 --refinement-min-chain-anchors INT default: 5
 ```
@@ -398,6 +399,12 @@ most `--max-patch-gap-bp`, and extension windows keep at least
 `--min-patch-identity` by Levenshtein edit distance, the two bundles are merged
 and aligned as one patched bundle.
 
+After gap patching, the final bundle set is overlap-trimmed immediately before
+base alignment. Lower-scoring bundles are trimmed only when both the ref and
+query intervals overlap a higher-scoring bundle by at least
+`--chain-trim-overlap`. One-sided overlaps are retained because they may
+represent duplication or other structural variation.
+
 Large intervals are skipped if either side exceeds:
 
 ```text
@@ -423,6 +430,7 @@ cg:Z:<CIGAR>
 ch:i:<chain_id>
 bt:Z:<primary|refined|patched>
 pg:i:<number_of_patched_gaps>
+tr:i:<number_of_bundle_trim_events>
 as:i:<alignment_score>
 ```
 

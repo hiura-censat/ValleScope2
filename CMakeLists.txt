@@ -36,6 +36,10 @@ add_executable(vallescope2
     src/anchor/genmap_runner.cpp
     src/anchor/window_scoring.cpp
     src/bundle/chaining.cpp
+    src/bundle/chaining_dp.cpp
+    src/bundle/chaining_io.cpp
+    src/bundle/chaining_refinement.cpp
+    src/bundle/chaining_trim.cpp
     src/common/process.cpp
     src/common/sha256.cpp
     src/common/workspace.cpp
@@ -73,6 +77,10 @@ if(BUILD_TESTING)
         test/anchor_grouping_test.cpp
         src/alignment/base_alignment.cpp
         src/bundle/chaining.cpp
+        src/bundle/chaining_dp.cpp
+        src/bundle/chaining_io.cpp
+        src/bundle/chaining_refinement.cpp
+        src/bundle/chaining_trim.cpp
         src/common/sha256.cpp
         src/context/anchor_grouping.cpp
         src/context/structural_tokens.cpp

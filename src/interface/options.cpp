@@ -33,10 +33,11 @@ void print_usage(std::ostream& output) {
            << "  --pair-merge-mode MODE  reciprocal or union [union]\n"
            << "  --chain-predecessors INT  Chaining predecessor search limit [50]\n"
            << "  --max-chain-gap INT  Maximum ref/query gap between chained anchors [50000]\n"
-           << "  --chain-max-gap-ratio FLOAT  Maximum max(dr,dq)/min(dr,dq) [2]\n"
+           << "  --chain-max-gap-ratio FLOAT  Maximum max(dr,dq)/min(dr,dq) [1.2]\n"
            << "  --gap-weight FLOAT  Linear chaining gap weight [0.002]\n"
            << "  --min-chain-anchors INT  Minimum anchors per emitted chain [10]\n"
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
+           << "  --chain-trim-overlap FLOAT  Ref/query overlap for trimming lower-score chains/bundles [0.01]\n"
            << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
            << "  --base-align  Write base-level bundle PAF to stdout with cg:Z [default]\n"
@@ -171,6 +172,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--min-chain-score")
             options.chaining.min_chain_score =
                 parse_double(argc, argv, index, argument);
+        else if (argument == "--chain-trim-overlap")
+            options.chaining.chain_trim_overlap =
+                parse_double(argc, argv, index, argument);
         else if (argument == "--refinement-window")
             options.chaining.refinement_window =
                 parse_unsigned(argc, argv, index, argument);
@@ -229,6 +233,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("chain max gap ratio must be at least 1");
     if (options.chaining.min_chain_anchors == 0)
         throw std::runtime_error("minimum chain anchor count must be greater than zero");
+    if (options.chaining.chain_trim_overlap < 0.0 ||
+        options.chaining.chain_trim_overlap > 1.0)
+        throw std::runtime_error("chain trim overlap must be between 0 and 1");
     if (options.chaining.refinement_min_chain_anchors == 0)
         throw std::runtime_error("minimum refinement chain anchor count must be greater than zero");
     if (options.max_bundle_align_bp == 0)

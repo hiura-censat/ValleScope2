@@ -19,6 +19,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace vallescope2 {
@@ -35,6 +36,7 @@ struct SequenceDeleter {
 struct ChainBundle {
     std::string source;
     std::uint64_t chain_id = 0;
+    double score = 0.0;
     std::string sample_a;
     std::string sample_b;
     std::string sequence_a;
@@ -45,6 +47,7 @@ struct ChainBundle {
     std::uint64_t query_start = 0;
     std::uint64_t query_end = 0;
     std::uint64_t patch_count = 0;
+    std::uint64_t trim_count = 0;
 };
 
 struct Interval {
@@ -100,6 +103,17 @@ std::uint64_t parse_u64(const std::string& value, const std::string& column) {
     }
 }
 
+double parse_f64(const std::string& value, const std::string& column) {
+    try {
+        std::size_t parsed = 0;
+        const auto number = std::stod(value, &parsed);
+        if (value.empty() || parsed != value.size()) throw std::out_of_range("bad");
+        return number;
+    } catch (const std::exception&) {
+        throw std::runtime_error("invalid number in " + column + ": " + value);
+    }
+}
+
 std::vector<ChainBundle> load_chains(const std::filesystem::path& path,
                                      const std::string& source) {
     std::ifstream input(path);
@@ -113,6 +127,7 @@ std::vector<ChainBundle> load_chains(const std::filesystem::path& path,
     const auto sequence_a_column = require_column(columns, "sequence_a");
     const auto sequence_b_column = require_column(columns, "sequence_b");
     const auto strand_column = require_column(columns, "assign_strand");
+    const auto score_column = require_column(columns, "chain_score");
     const auto ref_start_column = require_column(columns, "ref_start");
     const auto ref_end_column = require_column(columns, "ref_end");
     const auto query_start_column = require_column(columns, "query_start");
@@ -132,6 +147,7 @@ std::vector<ChainBundle> load_chains(const std::filesystem::path& path,
         chain.sequence_a = fields[sequence_a_column];
         chain.sequence_b = fields[sequence_b_column];
         chain.strand = fields[strand_column] == "-" ? '-' : '+';
+        chain.score = parse_f64(fields[score_column], "chain_score");
         chain.ref_start = parse_u64(fields[ref_start_column], "ref_start");
         chain.ref_end = parse_u64(fields[ref_end_column], "ref_end");
         chain.query_start = parse_u64(fields[query_start_column], "query_start");
@@ -422,6 +438,178 @@ bool same_bundle_track(const ChainBundle& left,
            left.strand == right.strand;
 }
 
+std::uint64_t interval_span(const std::uint64_t start,
+                            const std::uint64_t end) {
+    return end > start ? end - start : 0;
+}
+
+std::uint64_t interval_overlap(const std::uint64_t a_start,
+                               const std::uint64_t a_end,
+                               const std::uint64_t b_start,
+                               const std::uint64_t b_end) {
+    const auto start = std::max(a_start, b_start);
+    const auto end = std::min(a_end, b_end);
+    return end > start ? end - start : 0;
+}
+
+double overlap_fraction_of_smaller(const std::uint64_t a_start,
+                                   const std::uint64_t a_end,
+                                   const std::uint64_t b_start,
+                                   const std::uint64_t b_end) {
+    const auto smaller = std::min(interval_span(a_start, a_end),
+                                  interval_span(b_start, b_end));
+    if (smaller == 0) return 0.0;
+    return static_cast<double>(interval_overlap(a_start, a_end, b_start, b_end)) /
+           static_cast<double>(smaller);
+}
+
+bool needs_bundle_trim(const ChainBundle& bundle,
+                       const ChainBundle& blocker,
+                       const double trim_overlap) {
+    if (!same_bundle_track(bundle, blocker)) return false;
+    const auto ref_overlap = overlap_fraction_of_smaller(
+        bundle.ref_start, bundle.ref_end, blocker.ref_start, blocker.ref_end);
+    const auto query_overlap = overlap_fraction_of_smaller(
+        bundle.query_start, bundle.query_end,
+        blocker.query_start, blocker.query_end);
+    return ref_overlap >= trim_overlap && query_overlap >= trim_overlap;
+}
+
+void add_trimmed_fragment(std::vector<ChainBundle>& fragments,
+                          const ChainBundle& bundle,
+                          const std::uint64_t ref_start,
+                          const std::uint64_t ref_end,
+                          const std::uint64_t query_start,
+                          const std::uint64_t query_end,
+                          const std::uint32_t minimum_span) {
+    if (interval_span(ref_start, ref_end) < minimum_span ||
+        interval_span(query_start, query_end) < minimum_span) {
+        return;
+    }
+    ChainBundle fragment = bundle;
+    fragment.ref_start = ref_start;
+    fragment.ref_end = ref_end;
+    fragment.query_start = query_start;
+    fragment.query_end = query_end;
+    ++fragment.trim_count;
+    fragments.push_back(std::move(fragment));
+}
+
+std::vector<ChainBundle> trim_bundle_against_blocker(
+    const ChainBundle& bundle,
+    const ChainBundle& blocker,
+    const std::uint32_t minimum_span) {
+    std::vector<ChainBundle> fragments;
+    if (bundle.strand == '+') {
+        add_trimmed_fragment(
+            fragments, bundle,
+            bundle.ref_start, std::min(bundle.ref_end, blocker.ref_start),
+            bundle.query_start, std::min(bundle.query_end, blocker.query_start),
+            minimum_span);
+        add_trimmed_fragment(
+            fragments, bundle,
+            std::max(bundle.ref_start, blocker.ref_end), bundle.ref_end,
+            std::max(bundle.query_start, blocker.query_end), bundle.query_end,
+            minimum_span);
+    } else {
+        add_trimmed_fragment(
+            fragments, bundle,
+            bundle.ref_start, std::min(bundle.ref_end, blocker.ref_start),
+            std::max(bundle.query_start, blocker.query_end), bundle.query_end,
+            minimum_span);
+        add_trimmed_fragment(
+            fragments, bundle,
+            std::max(bundle.ref_start, blocker.ref_end), bundle.ref_end,
+            bundle.query_start, std::min(bundle.query_end, blocker.query_start),
+            minimum_span);
+    }
+    return fragments;
+}
+
+std::uint64_t bundle_span_sum(const ChainBundle& bundle) {
+    return interval_span(bundle.ref_start, bundle.ref_end) +
+           interval_span(bundle.query_start, bundle.query_end);
+}
+
+std::vector<ChainBundle> final_trim_bundles(
+    std::vector<ChainBundle> bundles,
+    const BaseAlignmentParameters& parameters,
+    std::uint64_t& trim_count) {
+    trim_count = 0;
+    if (parameters.bundle_trim_overlap <= 0.0 || bundles.size() < 2) {
+        std::sort(bundles.begin(), bundles.end(),
+                  [](const ChainBundle& left, const ChainBundle& right) {
+                      return std::tie(left.sample_a, left.sample_b,
+                                      left.sequence_a, left.sequence_b,
+                                      left.strand, left.ref_start, left.ref_end,
+                                      left.query_start, left.query_end,
+                                      left.source, left.chain_id) <
+                             std::tie(right.sample_a, right.sample_b,
+                                      right.sequence_a, right.sequence_b,
+                                      right.strand, right.ref_start,
+                                      right.ref_end, right.query_start,
+                                      right.query_end, right.source,
+                                      right.chain_id);
+                  });
+        return bundles;
+    }
+
+    std::sort(bundles.begin(), bundles.end(),
+              [](const ChainBundle& left, const ChainBundle& right) {
+                  if (left.score != right.score) return left.score > right.score;
+                  if (bundle_span_sum(left) != bundle_span_sum(right)) {
+                      return bundle_span_sum(left) > bundle_span_sum(right);
+                  }
+                  return std::tie(left.sample_a, left.sample_b, left.sequence_a,
+                                  left.sequence_b, left.strand, left.ref_start,
+                                  left.query_start, left.source, left.chain_id) <
+                         std::tie(right.sample_a, right.sample_b, right.sequence_a,
+                                  right.sequence_b, right.strand, right.ref_start,
+                                  right.query_start, right.source, right.chain_id);
+              });
+
+    std::vector<ChainBundle> accepted;
+    for (const auto& bundle : bundles) {
+        std::vector<ChainBundle> fragments{bundle};
+        bool trimmed = false;
+        for (const auto& blocker : accepted) {
+            std::vector<ChainBundle> next_fragments;
+            for (const auto& fragment : fragments) {
+                if (!needs_bundle_trim(fragment, blocker,
+                                       parameters.bundle_trim_overlap)) {
+                    next_fragments.push_back(fragment);
+                    continue;
+                }
+                trimmed = true;
+                auto split = trim_bundle_against_blocker(
+                    fragment, blocker, parameters.anchor_length);
+                next_fragments.insert(next_fragments.end(),
+                                      std::make_move_iterator(split.begin()),
+                                      std::make_move_iterator(split.end()));
+            }
+            fragments = std::move(next_fragments);
+            if (fragments.empty()) break;
+        }
+        if (trimmed) ++trim_count;
+        accepted.insert(accepted.end(),
+                        std::make_move_iterator(fragments.begin()),
+                        std::make_move_iterator(fragments.end()));
+    }
+
+    std::sort(accepted.begin(), accepted.end(),
+              [](const ChainBundle& left, const ChainBundle& right) {
+                  return std::tie(left.sample_a, left.sample_b, left.sequence_a,
+                                  left.sequence_b, left.strand, left.ref_start,
+                                  left.ref_end, left.query_start, left.query_end,
+                                  left.source, left.chain_id) <
+                         std::tie(right.sample_a, right.sample_b, right.sequence_a,
+                                  right.sequence_b, right.strand, right.ref_start,
+                                  right.ref_end, right.query_start,
+                                  right.query_end, right.source, right.chain_id);
+              });
+    return accepted;
+}
+
 std::uint64_t query_gap_between(const ChainBundle& left,
                                 const ChainBundle& right) {
     if (left.strand == '+') return positive_gap(left.query_end, right.query_start);
@@ -566,7 +754,9 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         merged.ref_end = std::max(merged.ref_end, bundle.ref_end);
         merged.query_start = std::min(merged.query_start, bundle.query_start);
         merged.query_end = std::max(merged.query_end, bundle.query_end);
+        merged.score += bundle.score;
         merged.patch_count += bundle.patch_count + 1;
+        merged.trim_count += bundle.trim_count;
         merged.source = "patched";
         ++patch_count;
     }
@@ -597,6 +787,10 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"patch_window_bp\": " << parameters.patch_window_bp << ",\n"
            << "  \"min_patch_identity\": " << parameters.min_patch_identity << ",\n"
            << "  \"max_wfa_memory_gb\": " << parameters.max_wfa_memory_gb << ",\n"
+           << "  \"bundle_trim_overlap\": " << parameters.bundle_trim_overlap << ",\n"
+           << "  \"loaded_bundle_count\": " << result.loaded_bundle_count << ",\n"
+           << "  \"post_patch_bundle_count\": " << result.post_patch_bundle_count << ",\n"
+           << "  \"bundle_trim_count\": " << result.bundle_trim_count << ",\n"
            << "  \"bundle_count\": " << result.bundle_count << ",\n"
            << "  \"patched_bundle_count\": " << result.patched_bundle_count << ",\n"
            << "  \"patch_count\": " << result.patch_count << ",\n"
@@ -616,6 +810,7 @@ BaseAlignmentResult align_chain_bundles(
     const BaseAlignmentParameters& parameters) {
     const auto loaded_bundles = load_chain_files(chain_files);
     BaseAlignmentResult result;
+    result.loaded_bundle_count = loaded_bundles.size();
 
     std::unique_ptr<faidx_t, FaiDeleter> index(
         fai_load3(fasta.c_str(), fasta_index.c_str(), nullptr, 0));
@@ -623,10 +818,14 @@ BaseAlignmentResult align_chain_bundles(
 
     auto bundles = patch_adjacent_bundles(
         loaded_bundles, index.get(), parameters, result.patch_count);
+    result.post_patch_bundle_count = bundles.size();
+    bundles = final_trim_bundles(
+        std::move(bundles), parameters, result.bundle_trim_count);
     result.bundle_count = bundles.size();
     result.patched_bundle_count =
-        loaded_bundles.size() > bundles.size() ? loaded_bundles.size() - bundles.size()
-                                               : 0;
+        loaded_bundles.size() > result.post_patch_bundle_count
+            ? loaded_bundles.size() - result.post_patch_bundle_count
+            : 0;
 
     std::ofstream paf(paf_output);
     if (!paf) throw std::runtime_error("cannot create bundle alignment PAF");
@@ -674,6 +873,7 @@ BaseAlignmentResult align_chain_bundles(
             << "\tch:i:" << bundle.chain_id
             << "\tbt:Z:" << bundle.source
             << "\tpg:i:" << bundle.patch_count
+            << "\ttr:i:" << bundle.trim_count
             << "\tas:i:" << alignment.score
             << "\tsa:Z:" << bundle.sample_a
             << "\tsb:Z:" << bundle.sample_b

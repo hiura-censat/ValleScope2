@@ -14,9 +14,13 @@ struct BaseAlignmentParameters {
     std::uint32_t patch_window_bp = 1000;
     double min_patch_identity = 0.85;
     std::uint32_t max_wfa_memory_gb = 64;
+    double bundle_trim_overlap = 0.01;
 };
 
 struct BaseAlignmentResult {
+    std::uint64_t loaded_bundle_count = 0;
+    std::uint64_t post_patch_bundle_count = 0;
+    std::uint64_t bundle_trim_count = 0;
     std::uint64_t bundle_count = 0;
     std::uint64_t patched_bundle_count = 0;
     std::uint64_t patch_count = 0;

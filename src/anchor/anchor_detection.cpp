@@ -170,7 +170,8 @@ void run_anchor_detection(const ProgramOptions& options) {
             bundle_alignment_metadata,
             {options.anchor_length, options.max_bundle_align_bp, 25000000,
              options.max_patch_gap_bp, options.patch_window_bp,
-             options.min_patch_identity, options.max_wfa_memory_gb});
+             options.min_patch_identity, options.max_wfa_memory_gb,
+             options.chaining.chain_trim_overlap});
         base_alignment_time =
             std::chrono::steady_clock::now() - base_alignment_start;
     }
@@ -253,7 +254,9 @@ void run_anchor_detection(const ProgramOptions& options) {
     }
     std::cerr << "Built " << chaining.chain_count << " top chain(s) from "
               << chaining.candidate_count << " correspondence candidate(s), using "
-              << chaining.chain_anchor_count << " chained anchor pair(s); refined "
+              << chaining.chain_anchor_count << " chained anchor pair(s); trimmed "
+              << chaining.trimmed_chain_count << " of "
+              << chaining.raw_chain_count << " raw chain(s); refined "
               << chaining.refined_chain_count << " chain(s), using "
               << chaining.refined_chain_anchor_count << " anchor pair(s) in "
               << chaining_time.count() << " s.\n";
@@ -269,7 +272,9 @@ void run_anchor_detection(const ProgramOptions& options) {
                   << base_alignment.skipped_bundle_count
                   << "; patched " << base_alignment.patch_count
                   << " gap(s) into " << base_alignment.patched_bundle_count
-                  << " merged bundle(s) in "
+                  << " merged bundle(s); final-trimmed "
+                  << base_alignment.bundle_trim_count
+                  << " bundle(s) before alignment in "
                   << base_alignment_time.count() << " s.\n";
     }
     if (options.debug) std::cerr << "GenMap log: " << genmap_log << '\n';

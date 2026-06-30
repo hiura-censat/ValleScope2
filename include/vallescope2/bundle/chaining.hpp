@@ -8,17 +8,20 @@ namespace vallescope2 {
 struct ChainingParameters {
     std::uint32_t predecessor_count = 50;
     std::uint32_t max_chain_gap = 50000;
-    double chain_max_gap_ratio = 2.0;
+    double chain_max_gap_ratio = 1.2;
     double gap_weight = 0.002;
     std::uint32_t gap_unit = 10;
     std::uint32_t min_chain_anchors = 10;
     double min_chain_score = 0.0;
+    double chain_trim_overlap = 0.01;
     std::uint32_t refinement_window = 50000;
     std::uint32_t refinement_min_chain_anchors = 5;
 };
 
 struct ChainingResult {
     std::uint64_t candidate_count = 0;
+    std::uint64_t raw_chain_count = 0;
+    std::uint64_t trimmed_chain_count = 0;
     std::uint64_t chain_count = 0;
     std::uint64_t chain_anchor_count = 0;
     std::uint64_t refined_chain_count = 0;
