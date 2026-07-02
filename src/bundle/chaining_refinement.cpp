@@ -45,6 +45,7 @@ bool emit_refined_subset(
     std::uint64_t& next_chain_id,
     ChainingResult& result,
     std::unordered_set<std::string>& used,
+    std::vector<EmittedChain>& refined_chains,
     std::ostream& chains,
     std::ostream& chain_anchors,
     const std::string& refinement_type,
@@ -64,12 +65,13 @@ bool emit_refined_subset(
     for (const auto& candidate : emitted.anchors) used.insert(candidate_key(candidate));
     ++result.refined_chain_count;
     result.refined_chain_anchor_count += emitted.anchors.size();
+    refined_chains.push_back(std::move(emitted));
     return true;
 }
 
 }  // namespace
 
-void refine_chains(
+std::vector<EmittedChain> refine_chains(
     const std::vector<std::pair<std::string, std::vector<Candidate>>>& leftovers,
     std::vector<EmittedChain> primary_chains,
     const std::filesystem::path& refined_chain_output,
@@ -90,6 +92,7 @@ void refine_chains(
 
     std::uint64_t next_chain_id = 0;
     std::unordered_set<std::string> refined_used;
+    std::vector<EmittedChain> refined_chains;
     for (const auto& primary : primary_chains) {
         for (const auto& candidate : primary.anchors) {
             refined_used.insert(candidate_key(candidate));
@@ -115,8 +118,9 @@ void refine_chains(
                 }
             }
             emit_refined_subset(std::move(subset), parameters, next_chain_id, result,
-                                refined_used, chains, chain_anchors, "around",
-                                std::to_string(primary.id), ".", ".");
+                                refined_used, refined_chains, chains,
+                                chain_anchors, "around", std::to_string(primary.id),
+                                ".", ".");
         }
     }
 
@@ -168,9 +172,11 @@ void refine_chains(
             }
         }
         emit_refined_subset(std::move(subset), parameters, next_chain_id, result,
-                            refined_used, chains, chain_anchors, "between", ".",
-                            std::to_string(left.id), std::to_string(right.id));
+                            refined_used, refined_chains, chains, chain_anchors,
+                            "between", ".", std::to_string(left.id),
+                            std::to_string(right.id));
     }
+    return refined_chains;
 }
 
 }  // namespace chaining_detail

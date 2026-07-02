@@ -97,7 +97,7 @@ void write_metadata(const std::filesystem::path& path,
                     const ChainingParameters& parameters,
                     const ChainingResult& result);
 
-void refine_chains(
+std::vector<EmittedChain> refine_chains(
     const std::vector<std::pair<std::string, std::vector<Candidate>>>& leftovers,
     std::vector<EmittedChain> primary_chains,
     const std::filesystem::path& refined_chain_output,

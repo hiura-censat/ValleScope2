@@ -166,7 +166,7 @@ void run_anchor_detection(const ProgramOptions& options) {
     if (options.base_align) {
         const auto base_alignment_start = std::chrono::steady_clock::now();
         base_alignment = align_chain_bundles(
-            {chains, refined_chains}, {chain_anchors, refined_chain_anchors},
+            {chains}, {chain_anchors},
             grouped_anchors, genmap.input_fasta, context_index, bundle_alignments,
             bundle_alignment_metadata,
             {options.anchor_length, options.max_bundle_align_bp, 25000000,

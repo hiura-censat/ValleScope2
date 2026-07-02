@@ -113,7 +113,7 @@ ChainingResult build_anchor_chains(
 
     auto ordered_groups = group_candidates(std::move(candidates));
 
-    std::vector<EmittedChain> emitted_chains;
+    std::vector<EmittedChain> primary_chains;
     for (auto& item : ordered_groups) {
         auto& group = item.second;
         std::vector<Candidate> refinement_candidates;
@@ -138,8 +138,9 @@ ChainingResult build_anchor_chains(
                 continue;
             }
 
-            auto emitted = make_emitted_chain(0, group, chain, chain_score);
-            emitted_chains.push_back(std::move(emitted));
+            auto emitted =
+                make_emitted_chain(primary_chains.size(), group, chain, chain_score);
+            primary_chains.push_back(std::move(emitted));
 
             std::vector<Candidate> remaining;
             remaining.reserve(group.size() - chain.size());
@@ -153,11 +154,21 @@ ChainingResult build_anchor_chains(
                      std::make_move_iterator(refinement_candidates.end()));
     }
 
-    result.raw_chain_count = emitted_chains.size();
+    result.raw_chain_count = primary_chains.size();
+    add_assignment_candidates(ordered_groups, std::move(assignment_candidates));
+    auto refined_chains = refine_chains(
+        ordered_groups, primary_chains, refined_chain_output,
+        refined_chain_anchor_output, parameters, result);
+
+    std::vector<EmittedChain> emitted_chains = std::move(primary_chains);
+    emitted_chains.insert(emitted_chains.end(),
+                          std::make_move_iterator(refined_chains.begin()),
+                          std::make_move_iterator(refined_chains.end()));
+    const auto pre_trim_chain_count = emitted_chains.size();
     emitted_chains = trim_overlapping_chains(std::move(emitted_chains), parameters);
     result.trimmed_chain_count =
-        result.raw_chain_count > emitted_chains.size()
-            ? result.raw_chain_count - emitted_chains.size()
+        pre_trim_chain_count > emitted_chains.size()
+            ? pre_trim_chain_count - emitted_chains.size()
             : 0;
     result.chain_count = emitted_chains.size();
     for (const auto& emitted : emitted_chains) {
@@ -165,10 +176,6 @@ ChainingResult build_anchor_chains(
         write_chain(chains, chain_anchors, emitted);
     }
 
-    add_assignment_candidates(ordered_groups, std::move(assignment_candidates));
-    refine_chains(ordered_groups, std::move(emitted_chains),
-                  refined_chain_output, refined_chain_anchor_output,
-                  parameters, result);
     write_metadata(metadata_output, parameters, result);
     write_metadata(refined_metadata_output, parameters, result);
     return result;
