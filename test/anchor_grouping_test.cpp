@@ -209,6 +209,7 @@ int main() {
         }
         vallescope2::AssignmentParameters assignment_parameters;
         assignment_parameters.beta_tolerance = 2;
+        assignment_parameters.min_candidate_score = -10;
         assignment_parameters.primary_margin = 5;
         const auto assignment_result =
             vallescope2::assign_context_correspondences(

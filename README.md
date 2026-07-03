@@ -146,7 +146,7 @@ Correspondence assignment:
 
 ```text
 -bt, --beta-tolerance INT          default: 30
--mcs, --min-candidate-score INT    default: -10
+-mcs, --min-candidate-score INT    default: 10
 -pm, --primary-margin INT          default: 5
 --pair-merge-mode MODE             union or reciprocal, default: union
 ```
@@ -156,11 +156,11 @@ Chaining and refinement:
 ```text
 --chain-predecessors INT           default: 50
 --max-chain-gap INT                default: 750
---chain-max-gap-ratio FLOAT        default: 1.2
+--chain-max-gap-ratio FLOAT        default: 1.05
 --gap-cost-model MODE              default: absolute
 --gap-weight FLOAT                 default: 0.002
 --min-chain-anchors INT            default: 20
---min-chain-both-anchors INT       default: 0
+--min-chain-both-anchors INT       default: 1
 --min-chain-score FLOAT            default: 0
 --chain-trim-overlap FLOAT         default: 0.01
 --refinement-window INT            default: 50000
@@ -173,7 +173,7 @@ Base-level bundle alignment:
 --base-align
 --no-base-align
 --max-bundle-align-bp INT          default: 50000
---max-patch-gap-bp INT            default: 0
+--max-patch-gap-bp INT            default: 70000
 --patch-window-bp INT             default: 1000
 --min-patch-identity FLOAT        default: 0.85
 --max-wfa-memory-gb INT           default: 64

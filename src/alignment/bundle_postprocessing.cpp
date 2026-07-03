@@ -260,6 +260,8 @@ bool can_patch_gap(faidx_t* index,
                    const BaseAlignmentParameters& parameters) {
     if (!same_bundle_track(left, right)) return false;
     if (right.ref_start < left.ref_end) return false;
+    if (left.strand == '+' && right.query_start < left.query_end) return false;
+    if (left.strand == '-' && right.query_end > left.query_start) return false;
 
     const auto ref_gap = right.ref_start - left.ref_end;
     const auto query_gap = query_gap_between(left, right);
