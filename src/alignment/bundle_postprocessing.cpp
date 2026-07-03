@@ -3,6 +3,7 @@
 #include "vallescope2/context/anchor_grouping.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <iterator>
 #include <tuple>
@@ -41,6 +42,13 @@ double sequence_identity(const std::string& ref,
     return 1.0 - static_cast<double>(distance) /
                      static_cast<double>(denominator);
 }
+
+struct PatchExtensionStep {
+    std::uint64_t ref_consumed = 0;
+    std::uint64_t query_consumed = 0;
+    double identity = 0.0;
+    bool success = false;
+};
 
 std::uint64_t positive_gap(const std::uint64_t left_end,
                            const std::uint64_t right_start) {
@@ -243,15 +251,97 @@ std::string fetch_patch_query(faidx_t* index,
     return sequence;
 }
 
-bool extension_window_matches(faidx_t* index,
-                              const ChainBundle& bundle,
-                              const Interval& ref_interval,
-                              const Interval& query_interval,
-                              const BaseAlignmentParameters& parameters) {
-    const auto ref = fetch_interval(index, bundle.sequence_a, ref_interval);
-    const auto query = fetch_patch_query(
+std::string reversed(std::string sequence) {
+    std::reverse(sequence.begin(), sequence.end());
+    return sequence;
+}
+
+PatchExtensionStep trusted_wfa_prefix(const std::string& ref,
+                                      const std::string& query,
+                                      const BaseAlignmentParameters& parameters) {
+    PatchExtensionStep best;
+    if (ref.empty() || query.empty()) return best;
+
+    const auto alignment = align_segment(ref, query, parameters);
+    std::uint64_t ref_consumed = 0;
+    std::uint64_t query_consumed = 0;
+    std::uint64_t matches = 0;
+    std::uint64_t block_length = 0;
+    std::size_t ref_offset = 0;
+    std::size_t query_offset = 0;
+
+    auto consider_prefix = [&]() {
+        if (ref_consumed == 0 || query_consumed == 0 ||
+            block_length < parameters.anchor_length) {
+            return;
+        }
+        const double identity =
+            static_cast<double>(matches) / static_cast<double>(block_length);
+        if (identity >= parameters.min_patch_identity) {
+            best.ref_consumed = ref_consumed;
+            best.query_consumed = query_consumed;
+            best.identity = identity;
+            best.success = true;
+        }
+    };
+
+    std::size_t begin = 0;
+    while (begin < alignment.cigar.size()) {
+        std::size_t end = begin;
+        while (end < alignment.cigar.size() &&
+               std::isdigit(static_cast<unsigned char>(alignment.cigar[end]))) {
+            ++end;
+        }
+        if (end == begin || end >= alignment.cigar.size()) break;
+        const auto length = parse_u64(
+            alignment.cigar.substr(begin, end - begin), "cigar_length");
+        const char op = alignment.cigar[end];
+
+        if (op == '=' || op == 'X' || op == 'M') {
+            for (std::uint64_t i = 0; i < length; ++i) {
+                if (ref_offset + i < ref.size() &&
+                    query_offset + i < query.size() &&
+                    ref[ref_offset + i] == query[query_offset + i]) {
+                    ++matches;
+                }
+            }
+            ref_consumed += length;
+            query_consumed += length;
+            block_length += length;
+            ref_offset += length;
+            query_offset += length;
+        } else if (op == 'I') {
+            query_consumed += length;
+            block_length += length;
+            query_offset += length;
+        } else if (op == 'D') {
+            ref_consumed += length;
+            block_length += length;
+            ref_offset += length;
+        } else {
+            break;
+        }
+        consider_prefix();
+        begin = end + 1;
+    }
+    return best;
+}
+
+PatchExtensionStep extend_patch_window_wfa(
+    faidx_t* index,
+    const ChainBundle& bundle,
+    const Interval& ref_interval,
+    const Interval& query_interval,
+    const bool reverse_direction,
+    const BaseAlignmentParameters& parameters) {
+    auto ref = fetch_interval(index, bundle.sequence_a, ref_interval);
+    auto query = fetch_patch_query(
         index, bundle.sequence_b, query_interval, bundle.strand);
-    return sequence_identity(ref, query) >= parameters.min_patch_identity;
+    if (reverse_direction) {
+        ref = reversed(std::move(ref));
+        query = reversed(std::move(query));
+    }
+    return trusted_wfa_prefix(ref, query, parameters);
 }
 
 bool can_patch_gap(faidx_t* index,
@@ -276,9 +366,14 @@ bool can_patch_gap(faidx_t* index,
     std::uint64_t right_ref_extension = 0;
     std::uint64_t right_query_extension = 0;
 
+    auto ref_gap_is_closed = [&]() {
+        return left_ref_extension + right_ref_extension >= ref_gap;
+    };
+    auto query_gap_is_closed = [&]() {
+        return left_query_extension + right_query_extension >= query_gap;
+    };
     auto gap_is_closed = [&]() {
-        return left_ref_extension + right_ref_extension >= ref_gap ||
-               left_query_extension + right_query_extension >= query_gap;
+        return ref_gap_is_closed() && query_gap_is_closed();
     };
 
     while (!gap_is_closed()) {
@@ -287,7 +382,7 @@ bool can_patch_gap(faidx_t* index,
         const auto remaining_query =
             query_gap - std::min(query_gap,
                                  left_query_extension + right_query_extension);
-        if (remaining_ref == 0 || remaining_query == 0) return true;
+        if (remaining_ref == 0 || remaining_query == 0) return false;
 
         const auto left_ref_window =
             std::min<std::uint64_t>(parameters.patch_window_bp, remaining_ref);
@@ -304,13 +399,15 @@ bool can_patch_gap(faidx_t* index,
                               left_query_window,
                           left.query_start - left_query_extension};
         }
-        if (!extension_window_matches(index, left, left_ref, left_query,
-                                      parameters)) {
+        const auto left_step = extend_patch_window_wfa(
+            index, left, left_ref, left_query, false, parameters);
+        if (!left_step.success) {
             return false;
         }
-        left_ref_extension += left_ref_window;
-        left_query_extension += left_query_window;
+        left_ref_extension += left_step.ref_consumed;
+        left_query_extension += left_step.query_consumed;
         if (gap_is_closed()) return true;
+        if (ref_gap_is_closed() != query_gap_is_closed()) return false;
 
         const auto after_left_ref =
             ref_gap - std::min(ref_gap, left_ref_extension + right_ref_extension);
@@ -334,12 +431,14 @@ bool can_patch_gap(faidx_t* index,
                            right.query_end + right_query_extension +
                                right_query_window};
         }
-        if (!extension_window_matches(index, right, right_ref, right_query,
-                                      parameters)) {
+        const auto right_step = extend_patch_window_wfa(
+            index, right, right_ref, right_query, true, parameters);
+        if (!right_step.success) {
             return false;
         }
-        right_ref_extension += right_ref_window;
-        right_query_extension += right_query_window;
+        right_ref_extension += right_step.ref_consumed;
+        right_query_extension += right_step.query_consumed;
+        if (ref_gap_is_closed() != query_gap_is_closed()) return false;
     }
     return true;
 }
