@@ -157,6 +157,7 @@ Chaining and refinement:
 --chain-predecessors INT           default: 50
 --max-chain-gap INT                default: 750
 --chain-max-gap-ratio FLOAT        default: 1.2
+--gap-cost-model MODE              default: absolute
 --gap-weight FLOAT                 default: 0.002
 --min-chain-anchors INT            default: 20
 --min-chain-score FLOAT            default: 0
@@ -355,6 +356,13 @@ where:
 x = abs(dr - dq) / gap_unit
 gap_cost = gap_weight * x + log2(1 + x)
 gap_unit = 10
+```
+
+With `--gap-cost-model relative`, chaining instead uses:
+
+```text
+x = abs(dr - dq) / max(1, min(dr, dq))
+gap_cost = gap_weight * x + sqrt(1 + x) - 1
 ```
 
 Multiple chains are extracted iteratively after removing used candidates.

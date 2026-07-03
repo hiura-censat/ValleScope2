@@ -12,6 +12,16 @@ namespace vallescope2 {
 namespace chaining_detail {
 namespace {
 
+const char* gap_cost_model_name(const GapCostModel model) {
+    switch (model) {
+        case GapCostModel::absolute:
+            return "absolute";
+        case GapCostModel::relative:
+            return "relative";
+    }
+    return "unknown";
+}
+
 std::vector<std::string> split_tab(const std::string& line) {
     std::vector<std::string> fields;
     std::size_t begin = 0;
@@ -291,6 +301,8 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"max_chain_gap\": " << parameters.max_chain_gap << ",\n"
            << "  \"chain_max_gap_ratio\": "
            << parameters.chain_max_gap_ratio << ",\n"
+           << "  \"gap_cost_model\": \""
+           << gap_cost_model_name(parameters.gap_cost_model) << "\",\n"
            << "  \"gap_weight\": " << parameters.gap_weight << ",\n"
            << "  \"gap_unit\": " << parameters.gap_unit << ",\n"
            << "  \"min_chain_anchors\": " << parameters.min_chain_anchors << ",\n"

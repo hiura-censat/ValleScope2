@@ -34,6 +34,7 @@ void print_usage(std::ostream& output) {
            << "  --chain-predecessors INT  Chaining predecessor search limit [50]\n"
            << "  --max-chain-gap INT  Maximum ref/query gap between chained anchors [750]\n"
            << "  --chain-max-gap-ratio FLOAT  Maximum max(dr,dq)/min(dr,dq) [1.2]\n"
+           << "  --gap-cost-model MODE  absolute or relative [absolute]\n"
            << "  --gap-weight FLOAT  Linear chaining gap weight [0.002]\n"
            << "  --min-chain-anchors INT  Minimum anchors per emitted chain [20]\n"
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
@@ -94,6 +95,15 @@ PairMergeMode parse_pair_merge_mode(const int argc, char* argv[], int& index,
     const std::string value = argv[index];
     if (value == "reciprocal") return PairMergeMode::reciprocal;
     if (value == "union") return PairMergeMode::union_mode;
+    throw std::runtime_error("invalid value for " + option + ": " + value);
+}
+
+GapCostModel parse_gap_cost_model(const int argc, char* argv[], int& index,
+                                  const std::string& option) {
+    if (++index >= argc) throw std::runtime_error(option + " requires a mode");
+    const std::string value = argv[index];
+    if (value == "absolute") return GapCostModel::absolute;
+    if (value == "relative") return GapCostModel::relative;
     throw std::runtime_error("invalid value for " + option + ": " + value);
 }
 
@@ -163,6 +173,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--chain-max-gap-ratio")
             options.chaining.chain_max_gap_ratio =
                 parse_double(argc, argv, index, argument);
+        else if (argument == "--gap-cost-model")
+            options.chaining.gap_cost_model =
+                parse_gap_cost_model(argc, argv, index, argument);
         else if (argument == "--gap-weight")
             options.chaining.gap_weight =
                 parse_double(argc, argv, index, argument);

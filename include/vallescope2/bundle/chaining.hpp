@@ -5,10 +5,16 @@
 
 namespace vallescope2 {
 
+enum class GapCostModel {
+    absolute,
+    relative,
+};
+
 struct ChainingParameters {
     std::uint32_t predecessor_count = 50;
     std::uint32_t max_chain_gap = 750;
     double chain_max_gap_ratio = 1.2;
+    GapCostModel gap_cost_model = GapCostModel::absolute;
     double gap_weight = 0.002;
     std::uint32_t gap_unit = 10;
     std::uint32_t min_chain_anchors = 20;

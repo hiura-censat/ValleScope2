@@ -47,9 +47,15 @@ double path_gap_cost(const Candidate& predecessor,
     const auto dq = current.query_center > predecessor.query_center
                         ? current.query_center - predecessor.query_center
                         : predecessor.query_center - current.query_center;
-    const double x =
-        static_cast<double>(dr > dq ? dr - dq : dq - dr) /
-        static_cast<double>(parameters.gap_unit);
+    const auto delta = dr > dq ? dr - dq : dq - dr;
+    if (parameters.gap_cost_model == GapCostModel::relative) {
+        const double denominator =
+            static_cast<double>(std::max<std::uint64_t>(1, std::min(dr, dq)));
+        const double x = static_cast<double>(delta) / denominator;
+        return parameters.gap_weight * x + std::sqrt(1.0 + x) - 1.0;
+    }
+    const double x = static_cast<double>(delta) /
+                     static_cast<double>(parameters.gap_unit);
     return parameters.gap_weight * x + std::log2(1.0 + x);
 }
 
