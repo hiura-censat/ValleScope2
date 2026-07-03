@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <tuple>
 #include <vector>
 
 namespace vallescope2 {
@@ -38,6 +39,38 @@ bool is_inside_high_chain(const Candidate& candidate,
            candidate.ref_center <= high.ref_end &&
            high.query_start <= candidate.query_center &&
            candidate.query_center <= high.query_end;
+}
+
+bool is_both_supported(const Candidate& candidate) {
+    return candidate.support_direction == "both";
+}
+
+double both_rate(const EmittedChain& chain) {
+    if (chain.anchors.empty()) return 0.0;
+    return static_cast<double>(chain.both_anchor_count) /
+           static_cast<double>(chain.anchors.size());
+}
+
+bool chain_has_higher_trim_priority(const EmittedChain& left,
+                                    const EmittedChain& right) {
+    const auto left_rate = both_rate(left);
+    const auto right_rate = both_rate(right);
+    if (left_rate != right_rate) return left_rate > right_rate;
+    if (left.both_anchor_count != right.both_anchor_count) {
+        return left.both_anchor_count > right.both_anchor_count;
+    }
+    if (left.score != right.score) return left.score > right.score;
+    if (left.anchors.size() != right.anchors.size()) {
+        return left.anchors.size() > right.anchors.size();
+    }
+    return std::tie(left.sample_a, left.sample_b, left.sequence_a,
+                    left.sequence_b, left.strand, left.ref_start,
+                    left.ref_end, left.query_start, left.query_end,
+                    left.id) <
+           std::tie(right.sample_a, right.sample_b, right.sequence_a,
+                    right.sequence_b, right.strand, right.ref_start,
+                    right.ref_end, right.query_start, right.query_end,
+                    right.id);
 }
 
 double path_gap_cost(const Candidate& predecessor,
@@ -121,7 +154,8 @@ std::vector<EmittedChain> split_after_trimming(
     std::vector<EmittedChain> fragments;
     std::vector<Candidate> current;
     for (const auto& anchor : low.anchors) {
-        if (is_inside_high_chain(anchor, high)) {
+        if (is_inside_high_chain(anchor, high) &&
+            !is_both_supported(anchor)) {
             if (!current.empty()) {
                 fragments.push_back(
                     make_chain_from_anchors(std::move(current), parameters));
@@ -158,7 +192,7 @@ std::vector<EmittedChain> trim_overlapping_chains(
 
     std::stable_sort(chains.begin(), chains.end(),
                      [](const EmittedChain& left, const EmittedChain& right) {
-                         return left.score > right.score;
+                         return chain_has_higher_trim_priority(left, right);
                      });
 
     std::vector<EmittedChain> accepted;

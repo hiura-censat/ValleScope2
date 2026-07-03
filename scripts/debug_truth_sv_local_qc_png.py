@@ -15,6 +15,7 @@ the corresponding sample.
 
 import argparse
 import csv
+import gzip
 import math
 from pathlib import Path
 
@@ -42,39 +43,84 @@ def parse_info(info):
     return result
 
 
-def read_truth_vcf(path):
+def open_text(path):
+    path = str(path)
+    if path.endswith(".gz"):
+        return gzip.open(path, "rt")
+    return open(path)
+
+
+def infer_sample_from_path(path):
+    parts = Path(path).parts
+    for part in reversed(parts):
+        if part.startswith("sample"):
+            return part
+    name = Path(path).name
+    for suffix in (".vcf.gz", ".vcf", ".truth.gz", ".truth"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    return name.split(".")[0]
+
+
+def parse_vcf_record(fields, sample, kind):
+    info = parse_info(fields[7])
+    pos = int(fields[1])
+    ref = fields[3]
+    alt = fields[4].split(",")[0]
+    svtype = info.get("SVTYPE")
+    if not svtype:
+        if len(ref) > len(alt):
+            svtype = "DEL"
+        elif len(alt) > len(ref):
+            svtype = "INS"
+        else:
+            svtype = "SNV"
+    end = int(info.get("END", pos + max(1, len(ref)) - 1))
+    svlen_text = info.get("SVLEN")
+    if svlen_text:
+        try:
+            svlen = int(svlen_text.split(",")[0])
+        except ValueError:
+            svlen = len(alt) - len(ref)
+    else:
+        svlen = len(alt) - len(ref)
+    if end < pos:
+        end = pos
+    record_id = fields[2] if fields[2] != "." else f"{kind}_{pos}_{svtype}"
+    return {
+        "sample": sample,
+        "chrom": fields[0],
+        "pos": pos,
+        "start0": max(0, pos - 1),
+        "end0": max(pos, end),
+        "id": record_id,
+        "svtype": svtype,
+        "svlen": svlen,
+        "info": info,
+        "kind": kind,
+    }
+
+
+def read_vcf(path, kind):
     records = []
-    sample = None
-    with open(path) as handle:
+    sample = infer_sample_from_path(path)
+    with open_text(path) as handle:
         for line in handle:
             if line.startswith("##"):
                 continue
             if line.startswith("#CHROM"):
                 fields = line.rstrip("\n").split("\t")
-                sample = fields[9] if len(fields) > 9 else Path(path).stem.split(".")[0]
+                sample = fields[9] if len(fields) > 9 else sample
                 continue
             if not line.strip():
                 continue
             fields = line.rstrip("\n").split("\t")
-            info = parse_info(fields[7])
-            pos = int(fields[1])
-            svtype = info.get("SVTYPE", "NA")
-            end = int(info.get("END", pos))
-            svlen = int(info.get("SVLEN", "0").split(",")[0])
-            if end < pos:
-                end = pos
-            records.append({
-                "sample": sample,
-                "chrom": fields[0],
-                "pos": pos,
-                "start0": max(0, pos - 1),
-                "end0": max(pos, end),
-                "id": fields[2],
-                "svtype": svtype,
-                "svlen": svlen,
-                "info": info,
-            })
+            records.append(parse_vcf_record(fields, sample, kind))
     return records
+
+
+def read_truth_vcf(path):
+    return read_vcf(path, "truth")
 
 
 def load_sequences(path):
@@ -305,6 +351,11 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
         if p["tname"] == ref_seq and p["qname"] == sample
         and overlap(p["tstart"], p["tend"], ref0, ref1)
     ]
+    fp_variants = [
+        fp for fp in evidence.get("fp_variants", [])
+        if fp["chrom"] == ref_seq and fp["sample"] == sample
+        and overlap(fp["start0"], max(fp["end0"], fp["start0"] + 1), ref0, ref1)
+    ]
 
     query_values_assignment = []
     query_values_chain = []
@@ -430,9 +481,29 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
     sx0, sx1 = xr(sv0), xr(sv1)
     if sx1 - sx0 < 3:
         sx1 = sx0 + 3
-    base.rectangle([sx0, y_ref - 28, sx1, y_ref + 28],
-                   fill=(230, 40, 50, 90), outline=(180, 0, 0, 255))
-    base.line([sx0, y_ref - 38, sx0, y_q + 38], fill=(230, 40, 50, 120), width=1)
+    if sv.get("kind") == "fp":
+        base.rectangle([sx0, y_ref - 34, sx1, y_ref + 34],
+                       fill=(255, 120, 0, 115), outline=(210, 70, 0, 255))
+        base.line([sx0, y_ref - 44, sx0, y_q + 44],
+                  fill=(255, 120, 0, 150), width=2)
+    else:
+        base.rectangle([sx0, y_ref - 28, sx1, y_ref + 28],
+                       fill=(230, 40, 50, 90), outline=(180, 0, 0, 255))
+        base.line([sx0, y_ref - 38, sx0, y_q + 38],
+                  fill=(230, 40, 50, 120), width=1)
+
+    for fp in fp_variants:
+        fp0 = max(ref0, fp["start0"])
+        fp1 = min(ref1, max(fp["end0"], fp["start0"] + 1))
+        fx0, fx1 = xr(fp0), xr(fp1)
+        if fx1 - fx0 < 4:
+            fx1 = fx0 + 4
+        base.rectangle([fx0, y_ref - 52, fx1, y_ref - 32],
+                       fill=(255, 120, 0, 130), outline=(180, 70, 0, 255))
+        base.line([fx0, y_ref - 55, fx0, y_q + 45],
+                  fill=(255, 120, 0, 120), width=1)
+        base.text((fx0 + 3, y_ref - 66),
+                  f"FP:{fp['svtype']}", fill=(170, 60, 0, 255), font=font)
 
     for y, start, end, mapper, label in [
         (y_ref, ref0, ref1, xr, f"ref: {ref_seq}"),
@@ -453,14 +524,14 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
         base.text((15, y - 8), label, fill=(0, 0, 0, 255), font=font)
 
     title = (
-        f"{sv['id']}  {sv['svtype']}  pos={sv['pos']:,} "
+        f"{sv.get('kind', 'truth').upper()}  {sv['id']}  {sv['svtype']}  pos={sv['pos']:,} "
         f"end={sv['end0']:,} svlen={sv['svlen']:,}"
     )
     base.text((left, 20), title, fill=(0, 0, 0, 255), font=font)
     counts = (
         f"assignment={len(assignments)}  chain_anchor={len(chain_anchors)}  "
         f"refined_anchor={len(refined_anchors)}  chain={len(bundles)}  "
-        f"refined={len(refined)}  final_paf={len(pafs)}"
+        f"refined={len(refined)}  final_paf={len(pafs)}  fp={len(fp_variants)}"
     )
     base.text((left, 40), counts, fill=(0, 0, 0, 255), font=font)
     scale_note = (
@@ -471,6 +542,7 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
 
     legend = [
         ("truth SV", (230, 40, 50, 130)),
+        ("FP call", (255, 120, 0, 160)),
         ("assignment", (40, 100, 220, 130)),
         ("chain", (230, 125, 10, 160)),
         ("refined", (120, 40, 210, 170)),
@@ -521,6 +593,7 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
         "sample": sample,
         "sv_id": sv["id"],
         "svtype": sv["svtype"],
+        "kind": sv.get("kind", "truth"),
         "pos": sv["pos"],
         "end": sv["end0"],
         "svlen": sv["svlen"],
@@ -534,6 +607,7 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
         "chain_bundle_count": len(bundles),
         "refined_bundle_count": len(refined),
         "final_paf_count": len(pafs),
+        "fp_count": len(fp_variants),
         "paf_spanning_count": len(spanning_paf),
         "paf_left_flank_count": len(left_paf),
         "paf_right_flank_count": len(right_paf),
@@ -547,6 +621,8 @@ def main():
     parser.add_argument("--debug-dir", required=True)
     parser.add_argument("--paf", required=True)
     parser.add_argument("--truth-vcf", action="append", required=True)
+    parser.add_argument("--fp-vcf", action="append", default=[],
+                        help="Truvari fp.vcf.gz to overlay and draw FP-centered PNGs")
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--window-bp", type=int, default=10000)
     parser.add_argument("--query-pad-bp", type=int, default=10000)
@@ -570,6 +646,7 @@ def main():
             "chains": [],
             "refined_chains": [],
             "paf": read_paf(args.paf),
+            "fp_variants": [],
         }
     else:
         anchors = load_anchors(debug_dir / "grouped_anchors.tsv")
@@ -580,11 +657,16 @@ def main():
             "chains": load_bundles(debug_dir / "chains.tsv"),
             "refined_chains": load_bundles(debug_dir / "refined_chains.tsv", refined=True),
             "paf": read_paf(args.paf),
+            "fp_variants": [],
         }
+    for vcf in args.fp_vcf:
+        evidence["fp_variants"].extend(read_vcf(vcf, "fp"))
 
     svs = []
     for vcf in args.truth_vcf:
         svs.extend(read_truth_vcf(vcf))
+    for vcf in args.fp_vcf:
+        svs.extend(read_vcf(vcf, "fp"))
     svs.sort(key=lambda r: (r["sample"], r["pos"], r["id"]))
     if args.max_svs is not None:
         svs = svs[:args.max_svs]
@@ -592,7 +674,8 @@ def main():
     summaries = []
     for sv in svs:
         sample_dir = out_dir / sv["sample"]
-        name = f"{sv['pos']:07d}_{safe_name(sv['id'])}_{sv['svtype']}.png"
+        prefix = "fp" if sv.get("kind") == "fp" else "truth"
+        name = f"{prefix}__{sv['pos']:07d}_{safe_name(sv['id'])}_{sv['svtype']}.png"
         png = sample_dir / name
         summaries.append(draw_sv_plot(
             sv, png, lengths, evidence, args.window_bp, args.query_pad_bp,
@@ -602,11 +685,12 @@ def main():
     with open(summary_path, "w", newline="") as handle:
         fieldnames = [
             "sample", "sv_id", "svtype", "pos", "end", "svlen",
+            "kind",
             "ref_window_start", "ref_window_end",
             "query_window_start", "query_window_end",
             "assignment_count", "chain_anchor_count", "refined_anchor_count",
             "chain_bundle_count", "refined_bundle_count", "final_paf_count",
-            "paf_spanning_count", "paf_left_flank_count", "paf_right_flank_count",
+            "fp_count", "paf_spanning_count", "paf_left_flank_count", "paf_right_flank_count",
             "status", "png",
         ]
         writer = csv.DictWriter(handle, delimiter="\t", fieldnames=fieldnames)

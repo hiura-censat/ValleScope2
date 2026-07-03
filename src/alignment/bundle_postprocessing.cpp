@@ -1,11 +1,14 @@
 #include "base_alignment_internal.hpp"
 
+#include "bindings/cpp/WFAligner.hpp"
 #include "vallescope2/context/anchor_grouping.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <fstream>
 #include <iterator>
+#include <stdexcept>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -47,7 +50,19 @@ struct PatchExtensionStep {
     std::uint64_t ref_consumed = 0;
     std::uint64_t query_consumed = 0;
     double identity = 0.0;
+    std::string cigar;
     bool success = false;
+};
+
+struct PatchAttempt {
+    std::string classification = "unresolved";
+    bool merge = false;
+    std::uint64_t left_ref_extension = 0;
+    std::uint64_t left_query_extension = 0;
+    std::uint64_t right_ref_extension = 0;
+    std::uint64_t right_query_extension = 0;
+    std::string copy_support_side = ".";
+    std::uint64_t copy_support_both_count = 0;
 };
 
 std::uint64_t positive_gap(const std::uint64_t left_end,
@@ -242,6 +257,65 @@ std::uint64_t query_gap_between(const ChainBundle& left,
     return right.query_end < left.query_start ? left.query_start - right.query_end : 0;
 }
 
+std::string bundle_track_key(const ChainBundle& bundle) {
+    return bundle.sample_a + '\x1f' + bundle.sample_b + '\x1f' +
+           bundle.sequence_a + '\x1f' + bundle.sequence_b + '\x1f' +
+           bundle.strand;
+}
+
+std::string candidate_track_key(const ExtensionCandidate& candidate) {
+    return candidate.sample_a + '\x1f' + candidate.sample_b + '\x1f' +
+           candidate.sequence_a + '\x1f' + candidate.sequence_b + '\x1f' +
+           candidate.strand;
+}
+
+std::uint64_t count_open_axis_both_support(
+    const std::vector<ExtensionCandidate>& candidates,
+    const ChainBundle& left,
+    const ChainBundle& right,
+    const std::string& side,
+    const std::uint64_t left_ref_extension,
+    const std::uint64_t left_query_extension,
+    const std::uint64_t right_ref_extension,
+    const std::uint64_t right_query_extension) {
+    const auto key = bundle_track_key(left);
+    std::uint64_t count = 0;
+    for (const auto& candidate : candidates) {
+        if (candidate_track_key(candidate) != key) continue;
+        if (candidate.support_direction != "both") continue;
+        if (side == "ref") {
+            const auto start = left.ref_end + left_ref_extension;
+            const auto end = right.ref_start > right_ref_extension
+                                 ? right.ref_start - right_ref_extension
+                                 : 0;
+            if (start < candidate.ref_center && candidate.ref_center < end) {
+                ++count;
+            }
+        } else if (side == "query") {
+            if (left.strand == '+') {
+                const auto start = left.query_end + left_query_extension;
+                const auto end = right.query_start > right_query_extension
+                                     ? right.query_start - right_query_extension
+                                     : 0;
+                if (start < candidate.query_center &&
+                    candidate.query_center < end) {
+                    ++count;
+                }
+            } else {
+                const auto start = right.query_end + right_query_extension;
+                const auto end = left.query_start > left_query_extension
+                                     ? left.query_start - left_query_extension
+                                     : 0;
+                if (start < candidate.query_center &&
+                    candidate.query_center < end) {
+                    ++count;
+                }
+            }
+        }
+    }
+    return count;
+}
+
 std::string fetch_patch_query(faidx_t* index,
                               const std::string& sequence_id,
                               const Interval& interval,
@@ -262,7 +336,18 @@ PatchExtensionStep trusted_wfa_prefix(const std::string& ref,
     PatchExtensionStep best;
     if (ref.empty() || query.empty()) return best;
 
-    const auto alignment = align_segment(ref, query, parameters);
+    wfa::WFAlignerGapAffine aligner(
+        4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
+    const auto max_memory =
+        static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) * 1024ULL *
+        1024ULL * 1024ULL;
+    aligner.setMaxMemory(max_memory, max_memory);
+    const auto status = aligner.alignExtension(
+        query.c_str(), static_cast<int>(query.size()), ref.c_str(),
+        static_cast<int>(ref.size()));
+    if (status < 0) return best;
+    const std::string cigar = aligner.getCIGAR(true);
+    best.cigar = cigar;
     std::uint64_t ref_consumed = 0;
     std::uint64_t query_consumed = 0;
     std::uint64_t matches = 0;
@@ -286,16 +371,20 @@ PatchExtensionStep trusted_wfa_prefix(const std::string& ref,
     };
 
     std::size_t begin = 0;
-    while (begin < alignment.cigar.size()) {
+    while (begin < cigar.size()) {
         std::size_t end = begin;
-        while (end < alignment.cigar.size() &&
-               std::isdigit(static_cast<unsigned char>(alignment.cigar[end]))) {
+        while (end < cigar.size() &&
+               std::isdigit(static_cast<unsigned char>(cigar[end]))) {
             ++end;
         }
-        if (end == begin || end >= alignment.cigar.size()) break;
+        if (end == begin || end >= cigar.size()) break;
         const auto length = parse_u64(
-            alignment.cigar.substr(begin, end - begin), "cigar_length");
-        const char op = alignment.cigar[end];
+            cigar.substr(begin, end - begin), "cigar_length");
+        const char op = cigar[end];
+        if ((op == 'I' || op == 'D') &&
+            length > parameters.max_patch_indel_bp) {
+            break;
+        }
 
         if (op == '=' || op == 'X' || op == 'M') {
             for (std::uint64_t i = 0; i < length; ++i) {
@@ -344,27 +433,69 @@ PatchExtensionStep extend_patch_window_wfa(
     return trusted_wfa_prefix(ref, query, parameters);
 }
 
-bool can_patch_gap(faidx_t* index,
-                   const ChainBundle& left,
-                   const ChainBundle& right,
-                   const BaseAlignmentParameters& parameters) {
-    if (!same_bundle_track(left, right)) return false;
-    if (right.ref_start < left.ref_end) return false;
-    if (left.strand == '+' && right.query_start < left.query_end) return false;
-    if (left.strand == '-' && right.query_end > left.query_start) return false;
+PatchAttempt evaluate_patch_gap(faidx_t* index,
+                                const ChainBundle& left,
+                                const ChainBundle& right,
+                                const std::vector<ExtensionCandidate>& candidates,
+                                const BaseAlignmentParameters& parameters,
+                                std::ostream& patch_report,
+                                const std::uint64_t patch_id) {
+    PatchAttempt attempt;
+    if (!same_bundle_track(left, right)) return attempt;
+    if (right.ref_start < left.ref_end) return attempt;
+    if (left.strand == '+' && right.query_start < left.query_end) return attempt;
+    if (left.strand == '-' && right.query_end > left.query_start) return attempt;
 
     const auto ref_gap = right.ref_start - left.ref_end;
     const auto query_gap = query_gap_between(left, right);
     if (ref_gap > parameters.max_patch_gap_bp ||
         query_gap > parameters.max_patch_gap_bp) {
-        return false;
+        return attempt;
     }
-    if (ref_gap == 0 && query_gap == 0) return true;
+    if (ref_gap == 0 && query_gap == 0) {
+        attempt.classification = "clean_patch";
+        attempt.merge = true;
+        return attempt;
+    }
+
+    auto write_step = [&](const std::uint64_t step_index,
+                          const char* side,
+                          const Interval& ref_interval,
+                          const Interval& query_interval,
+                          const PatchExtensionStep& step,
+                          const char* status,
+                          const std::uint64_t left_ref_extension_value,
+                          const std::uint64_t left_query_extension_value,
+                          const std::uint64_t right_ref_extension_value,
+                          const std::uint64_t right_query_extension_value) {
+        patch_report
+            << patch_id << '\t' << step_index << '\t' << side << '\t'
+            << status << '\t' << left.chain_id << '\t' << right.chain_id
+            << '\t' << left.sample_a << '\t' << left.sample_b << '\t'
+            << left.sequence_a << '\t' << left.sequence_b << '\t'
+            << left.strand << '\t' << ref_gap << '\t' << query_gap << '\t'
+            << ref_interval.start << '\t' << ref_interval.end << '\t'
+            << query_interval.start << '\t' << query_interval.end << '\t'
+            << (ref_interval.end - ref_interval.start) << '\t'
+            << (query_interval.end - query_interval.start) << '\t'
+            << step.ref_consumed << '\t' << step.query_consumed << '\t'
+            << step.identity << '\t' << (step.success ? 1 : 0) << '\t'
+            << step.cigar << '\t'
+            << left_ref_extension_value << '\t'
+            << left_query_extension_value << '\t'
+            << right_ref_extension_value << '\t'
+            << right_query_extension_value << '\t'
+            << left.ref_start << '\t' << left.ref_end << '\t'
+            << left.query_start << '\t' << left.query_end << '\t'
+            << right.ref_start << '\t' << right.ref_end << '\t'
+            << right.query_start << '\t' << right.query_end << '\n';
+    };
 
     std::uint64_t left_ref_extension = 0;
     std::uint64_t left_query_extension = 0;
     std::uint64_t right_ref_extension = 0;
     std::uint64_t right_query_extension = 0;
+    std::uint64_t step_index = 0;
 
     auto ref_gap_is_closed = [&]() {
         return left_ref_extension + right_ref_extension >= ref_gap;
@@ -375,19 +506,118 @@ bool can_patch_gap(faidx_t* index,
     auto gap_is_closed = [&]() {
         return ref_gap_is_closed() && query_gap_is_closed();
     };
+    auto remaining_ref_gap = [&]() {
+        return ref_gap - std::min(ref_gap,
+                                  left_ref_extension + right_ref_extension);
+    };
+    auto remaining_query_gap = [&]() {
+        return query_gap -
+               std::min(query_gap, left_query_extension + right_query_extension);
+    };
+    auto limit_step_at_bridge_breakpoint =
+        [&](PatchExtensionStep& step,
+            const std::uint64_t current_left_ref_extension,
+            const std::uint64_t current_left_query_extension,
+            const std::uint64_t current_right_ref_extension,
+            const std::uint64_t current_right_query_extension) {
+            if (!step.success) return false;
+            const auto predicted_ref =
+                current_left_ref_extension + current_right_ref_extension +
+                step.ref_consumed;
+            const auto predicted_query =
+                current_left_query_extension + current_right_query_extension +
+                step.query_consumed;
+            const bool ref_would_close =
+                predicted_ref >= ref_gap && predicted_query < query_gap;
+            const bool query_would_close =
+                predicted_query >= query_gap && predicted_ref < ref_gap;
+            if (!ref_would_close && !query_would_close) return false;
+
+            const std::string open_side = ref_would_close ? "query" : "ref";
+            const auto support = count_open_axis_both_support(
+                candidates, left, right, open_side,
+                current_left_ref_extension, current_left_query_extension,
+                current_right_ref_extension, current_right_query_extension);
+            attempt.copy_support_side = open_side;
+            attempt.copy_support_both_count = support;
+            if (support >= parameters.min_copy_support_anchors) return false;
+
+            const auto margin =
+                static_cast<std::uint64_t>(parameters.anchor_length);
+            const auto ref_limit = ref_gap > margin ? ref_gap - margin : 0;
+            const auto query_limit =
+                query_gap > margin ? query_gap - margin : 0;
+            double fraction = 1.0;
+            if (ref_would_close && step.ref_consumed > 0) {
+                const auto current_ref =
+                    current_left_ref_extension + current_right_ref_extension;
+                const auto allowed =
+                    ref_limit > current_ref ? ref_limit - current_ref : 0;
+                fraction = std::min(
+                    fraction,
+                    static_cast<double>(allowed) /
+                        static_cast<double>(step.ref_consumed));
+            }
+            if (query_would_close && step.query_consumed > 0) {
+                const auto current_query = current_left_query_extension +
+                                           current_right_query_extension;
+                const auto allowed = query_limit > current_query
+                                         ? query_limit - current_query
+                                         : 0;
+                fraction = std::min(
+                    fraction,
+                    static_cast<double>(allowed) /
+                        static_cast<double>(step.query_consumed));
+            }
+            if (fraction < 0.0) fraction = 0.0;
+            step.ref_consumed = static_cast<std::uint64_t>(
+                std::floor(static_cast<double>(step.ref_consumed) * fraction));
+            step.query_consumed = static_cast<std::uint64_t>(
+                std::floor(static_cast<double>(step.query_consumed) * fraction));
+            if (step.ref_consumed == 0 && step.query_consumed == 0) {
+                step.success = false;
+            }
+            return true;
+        };
+    auto finalize_attempt = [&]() {
+        attempt.left_ref_extension = left_ref_extension;
+        attempt.left_query_extension = left_query_extension;
+        attempt.right_ref_extension = right_ref_extension;
+        attempt.right_query_extension = right_query_extension;
+        const auto remaining_ref = remaining_ref_gap();
+        const auto remaining_query = remaining_query_gap();
+        if (remaining_ref == 0 && remaining_query == 0) {
+            attempt.classification = "clean_patch";
+            attempt.merge = true;
+        } else if (remaining_query <= parameters.patch_window_bp &&
+                   remaining_ref > remaining_query + parameters.max_patch_indel_bp) {
+            attempt.classification = "deletion_bridge";
+            attempt.merge = false;
+        } else if (remaining_ref <= parameters.patch_window_bp &&
+                   remaining_query > remaining_ref + parameters.max_patch_indel_bp) {
+            attempt.classification = "insertion_bridge";
+            attempt.merge = false;
+        } else {
+            attempt.classification = "unresolved";
+        }
+        return attempt;
+    };
 
     while (!gap_is_closed()) {
-        const auto remaining_ref =
-            ref_gap - std::min(ref_gap, left_ref_extension + right_ref_extension);
-        const auto remaining_query =
-            query_gap - std::min(query_gap,
-                                 left_query_extension + right_query_extension);
-        if (remaining_ref == 0 || remaining_query == 0) return false;
+        const auto remaining_ref = remaining_ref_gap();
+        const auto remaining_query = remaining_query_gap();
+        if (remaining_ref == 0 || remaining_query == 0) return finalize_attempt();
 
         const auto left_ref_window =
-            std::min<std::uint64_t>(parameters.patch_window_bp, remaining_ref);
+            std::min<std::uint64_t>(
+                static_cast<std::uint64_t>(parameters.patch_window_bp) +
+                    parameters.patch_window_slack_bp,
+                remaining_ref);
         const auto left_query_window =
-            std::min<std::uint64_t>(parameters.patch_window_bp, remaining_query);
+            std::min<std::uint64_t>(
+                static_cast<std::uint64_t>(parameters.patch_window_bp) +
+                    parameters.patch_window_slack_bp,
+                remaining_query);
         Interval left_ref{left.ref_end + left_ref_extension,
                           left.ref_end + left_ref_extension + left_ref_window};
         Interval left_query;
@@ -399,15 +629,31 @@ bool can_patch_gap(faidx_t* index,
                               left_query_window,
                           left.query_start - left_query_extension};
         }
-        const auto left_step = extend_patch_window_wfa(
+        auto left_step = extend_patch_window_wfa(
             index, left, left_ref, left_query, false, parameters);
+        const bool left_bridge_limited = limit_step_at_bridge_breakpoint(
+            left_step,
+            left_ref_extension,
+            left_query_extension,
+            right_ref_extension,
+            right_query_extension);
+        write_step(step_index++, "left", left_ref, left_query, left_step,
+                   left_step.success
+                       ? (left_bridge_limited ? "bridge_limited" : "accepted")
+                       : "failed",
+                   left_ref_extension + left_step.ref_consumed,
+                   left_query_extension + left_step.query_consumed,
+                   right_ref_extension, right_query_extension);
         if (!left_step.success) {
-            return false;
+            return finalize_attempt();
         }
         left_ref_extension += left_step.ref_consumed;
         left_query_extension += left_step.query_consumed;
-        if (gap_is_closed()) return true;
-        if (ref_gap_is_closed() != query_gap_is_closed()) return false;
+        if (left_bridge_limited) return finalize_attempt();
+        if (gap_is_closed()) return finalize_attempt();
+        if (ref_gap_is_closed() != query_gap_is_closed()) {
+            return finalize_attempt();
+        }
 
         const auto after_left_ref =
             ref_gap - std::min(ref_gap, left_ref_extension + right_ref_extension);
@@ -415,9 +661,15 @@ bool can_patch_gap(faidx_t* index,
             query_gap - std::min(query_gap,
                                  left_query_extension + right_query_extension);
         const auto right_ref_window =
-            std::min<std::uint64_t>(parameters.patch_window_bp, after_left_ref);
+            std::min<std::uint64_t>(
+                static_cast<std::uint64_t>(parameters.patch_window_bp) +
+                    parameters.patch_window_slack_bp,
+                after_left_ref);
         const auto right_query_window =
-            std::min<std::uint64_t>(parameters.patch_window_bp, after_left_query);
+            std::min<std::uint64_t>(
+                static_cast<std::uint64_t>(parameters.patch_window_bp) +
+                    parameters.patch_window_slack_bp,
+                after_left_query);
         Interval right_ref{right.ref_start - right_ref_extension -
                                right_ref_window,
                            right.ref_start - right_ref_extension};
@@ -431,24 +683,85 @@ bool can_patch_gap(faidx_t* index,
                            right.query_end + right_query_extension +
                                right_query_window};
         }
-        const auto right_step = extend_patch_window_wfa(
+        auto right_step = extend_patch_window_wfa(
             index, right, right_ref, right_query, true, parameters);
+        const bool right_bridge_limited = limit_step_at_bridge_breakpoint(
+            right_step,
+            left_ref_extension,
+            left_query_extension,
+            right_ref_extension,
+            right_query_extension);
+        write_step(step_index++, "right", right_ref, right_query, right_step,
+                   right_step.success
+                       ? (right_bridge_limited ? "bridge_limited" : "accepted")
+                       : "failed",
+                   left_ref_extension, left_query_extension,
+                   right_ref_extension + right_step.ref_consumed,
+                   right_query_extension + right_step.query_consumed);
         if (!right_step.success) {
-            return false;
+            return finalize_attempt();
         }
         right_ref_extension += right_step.ref_consumed;
         right_query_extension += right_step.query_consumed;
-        if (ref_gap_is_closed() != query_gap_is_closed()) return false;
+        if (right_bridge_limited) return finalize_attempt();
+        if (ref_gap_is_closed() != query_gap_is_closed()) {
+            return finalize_attempt();
+        }
     }
-    return true;
+    return finalize_attempt();
+}
+
+void extend_left_bundle(ChainBundle& bundle, const PatchAttempt& attempt) {
+    bundle.ref_end += attempt.left_ref_extension;
+    if (bundle.strand == '+') {
+        bundle.query_end += attempt.left_query_extension;
+    } else {
+        bundle.query_start =
+            bundle.query_start > attempt.left_query_extension
+                ? bundle.query_start - attempt.left_query_extension
+                : 0;
+    }
+}
+
+void extend_right_bundle(ChainBundle& bundle, const PatchAttempt& attempt) {
+    bundle.ref_start =
+        bundle.ref_start > attempt.right_ref_extension
+            ? bundle.ref_start - attempt.right_ref_extension
+            : 0;
+    if (bundle.strand == '+') {
+        bundle.query_start =
+            bundle.query_start > attempt.right_query_extension
+                ? bundle.query_start - attempt.right_query_extension
+                : 0;
+    } else {
+        bundle.query_end += attempt.right_query_extension;
+    }
 }
 
 std::vector<ChainBundle> patch_adjacent_bundles(
     std::vector<ChainBundle> bundles,
     faidx_t* index,
+    const std::vector<ExtensionCandidate>& candidates,
     const BaseAlignmentParameters& parameters,
+    const std::filesystem::path& patch_extension_output,
     std::uint64_t& patch_count) {
     patch_count = 0;
+    std::ofstream patch_report(patch_extension_output);
+    if (!patch_report) {
+        throw std::runtime_error("cannot create patch extension report");
+    }
+    patch_report
+        << "patch_id\tstep_index\tside\tstatus\tleft_chain_id"
+        << "\tright_chain_id\tsample_a\tsample_b\tsequence_a\tsequence_b"
+        << "\tstrand\tref_gap\tquery_gap\tref_window_start"
+        << "\tref_window_end\tquery_window_start\tquery_window_end"
+        << "\tref_window_len\tquery_window_len\tref_consumed"
+        << "\tquery_consumed\tidentity\tsuccess\tcigar"
+        << "\tleft_ref_extension"
+        << "\tleft_query_extension\tright_ref_extension"
+        << "\tright_query_extension\tleft_ref_start\tleft_ref_end"
+        << "\tleft_query_start\tleft_query_end\tright_ref_start"
+        << "\tright_ref_end\tright_query_start\tright_query_end\n";
     std::sort(bundles.begin(), bundles.end(),
               [](const ChainBundle& left, const ChainBundle& right) {
                   return std::tie(left.sample_a, left.sample_b, left.sequence_a,
@@ -462,24 +775,36 @@ std::vector<ChainBundle> patch_adjacent_bundles(
               });
 
     std::vector<ChainBundle> patched;
+    std::uint64_t patch_id = 0;
     for (const auto& bundle : bundles) {
-        if (patched.empty() ||
-            !can_patch_gap(index, patched.back(), bundle, parameters)) {
-            patched.push_back(bundle);
+        ChainBundle incoming = bundle;
+        if (patched.empty()) {
+            patched.push_back(std::move(incoming));
             continue;
         }
+        const auto attempt = evaluate_patch_gap(
+            index, patched.back(), incoming, candidates, parameters, patch_report,
+            patch_id++);
+        if (!attempt.merge) {
+            extend_left_bundle(patched.back(), attempt);
+            extend_right_bundle(incoming, attempt);
+            patched.push_back(std::move(incoming));
+            continue;
+        }
+        extend_left_bundle(patched.back(), attempt);
+        extend_right_bundle(incoming, attempt);
         auto& merged = patched.back();
-        merged.ref_start = std::min(merged.ref_start, bundle.ref_start);
-        merged.ref_end = std::max(merged.ref_end, bundle.ref_end);
-        merged.query_start = std::min(merged.query_start, bundle.query_start);
-        merged.query_end = std::max(merged.query_end, bundle.query_end);
-        merged.score += bundle.score;
-        merged.patch_count += bundle.patch_count + 1;
-        merged.trim_count += bundle.trim_count;
+        merged.ref_start = std::min(merged.ref_start, incoming.ref_start);
+        merged.ref_end = std::max(merged.ref_end, incoming.ref_end);
+        merged.query_start = std::min(merged.query_start, incoming.query_start);
+        merged.query_end = std::max(merged.query_end, incoming.query_end);
+        merged.score += incoming.score;
+        merged.patch_count += incoming.patch_count + 1;
+        merged.trim_count += incoming.trim_count;
         merged.anchor_indices.insert(merged.anchor_indices.end(),
-                                     bundle.anchor_indices.begin(),
-                                     bundle.anchor_indices.end());
-        merged.source = "patched";
+                                     incoming.anchor_indices.begin(),
+                                     incoming.anchor_indices.end());
+        merged.source = attempt.classification;
         ++patch_count;
     }
     return patched;

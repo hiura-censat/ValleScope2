@@ -24,6 +24,12 @@ const char* gap_cost_model_name(const GapCostModel model) {
     return "unknown";
 }
 
+double emitted_both_rate(const EmittedChain& chain) {
+    if (chain.anchors.empty()) return 0.0;
+    return static_cast<double>(chain.both_anchor_count) /
+           static_cast<double>(chain.anchors.size());
+}
+
 std::vector<std::string> split_tab(const std::string& line) {
     std::vector<std::string> fields;
     std::size_t begin = 0;
@@ -279,6 +285,7 @@ void write_chain(std::ostream& chains,
            << chain.sample_b << '\t' << chain.sequence_a << '\t'
            << chain.sequence_b << '\t' << chain.strand << '\t'
            << chain.anchors.size() << '\t' << chain.both_anchor_count << '\t'
+           << emitted_both_rate(chain) << '\t'
            << chain.score << '\t'
            << chain.ref_start << '\t' << chain.ref_end << '\t'
            << chain.query_start << '\t' << chain.query_end << '\n';
@@ -306,6 +313,7 @@ void write_refined_chain(std::ostream& chains,
            << chain.sample_b << '\t' << chain.sequence_a << '\t'
            << chain.sequence_b << '\t' << chain.strand << '\t'
            << chain.anchors.size() << '\t' << chain.both_anchor_count << '\t'
+           << emitted_both_rate(chain) << '\t'
            << chain.score << '\t'
            << chain.ref_start << '\t' << chain.ref_end << '\t'
            << chain.query_start << '\t' << chain.query_end << '\n';

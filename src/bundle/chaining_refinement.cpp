@@ -87,7 +87,8 @@ std::vector<EmittedChain> refine_chains(
     if (!chain_anchors) throw std::runtime_error("cannot create refined chain anchor output");
     chains << "chain_id\trefinement_type\tparent_chain_id\tleft_chain_id"
               "\tright_chain_id\tsample_a\tsample_b\tsequence_a\tsequence_b"
-              "\tassign_strand\tn_candidates\tboth_anchor_count\tchain_score"
+              "\tassign_strand\tn_candidates\tboth_anchor_count\tboth_rate"
+              "\tchain_score"
               "\tref_start\tref_end\tquery_start\tquery_end\n";
     chain_anchors << "chain_id\trank\trefinement_type\tsample_a\tsample_b"
                      "\tanchor_a\tanchor_b\tref_center\tquery_center"

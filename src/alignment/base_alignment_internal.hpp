@@ -162,7 +162,9 @@ std::vector<ChainBundle> final_trim_bundles(
 std::vector<ChainBundle> patch_adjacent_bundles(
     std::vector<ChainBundle> bundles,
     faidx_t* index,
+    const std::vector<ExtensionCandidate>& candidates,
     const BaseAlignmentParameters& parameters,
+    const std::filesystem::path& patch_extension_output,
     std::uint64_t& patch_count);
 
 void write_metadata(const std::filesystem::path& path,

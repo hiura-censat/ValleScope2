@@ -47,7 +47,9 @@ BaseAlignmentResult align_chain_bundles(
 
     const auto pre_patch_bundle_count = bundles.size();
     bundles = patch_adjacent_bundles(
-        std::move(bundles), index.get(), parameters, result.patch_count);
+        std::move(bundles), index.get(), extension_candidates, parameters,
+        metadata_output.parent_path() / "patch_extensions.tsv",
+        result.patch_count);
     result.post_patch_bundle_count = bundles.size();
     bundles = final_trim_bundles(
         std::move(bundles), parameters, result.bundle_trim_count);

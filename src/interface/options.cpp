@@ -53,6 +53,8 @@ void print_usage(std::ostream& output) {
            << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [50000]\n"
            << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
            << "  --patch-window-bp INT  Extension window size for gap patching [1000]\n"
+           << "  --patch-window-slack-bp INT  Extra sequence fetched for WFA extension patching [300]\n"
+           << "  --max-patch-indel-bp INT  Stop WFA patch extension before longer I/D [200]\n"
            << "  --min-patch-identity FLOAT  Minimum extension identity for gap patching [0.85]\n"
            << "  --max-wfa-memory-gb INT  WFA2 memory limit in GB [64]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
@@ -227,6 +229,12 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--patch-window-bp")
             options.patch_window_bp =
                 parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--patch-window-slack-bp")
+            options.patch_window_slack_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--max-patch-indel-bp")
+            options.max_patch_indel_bp =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "--min-patch-identity")
             options.min_patch_identity =
                 parse_double(argc, argv, index, argument);
@@ -283,6 +291,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("minimum chain extension anchor count must be greater than zero");
     if (options.patch_window_bp == 0)
         throw std::runtime_error("patch window size must be greater than zero");
+    if (options.max_patch_indel_bp == 0)
+        throw std::runtime_error("maximum patch indel length must be greater than zero");
     if (options.min_patch_identity < 0.0 || options.min_patch_identity > 1.0)
         throw std::runtime_error("minimum patch identity must be between 0 and 1");
     if (options.max_wfa_memory_gb == 0)

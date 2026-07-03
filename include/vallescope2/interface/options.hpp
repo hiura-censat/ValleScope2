@@ -20,6 +20,8 @@ struct ProgramOptions {
     std::uint32_t max_bundle_align_bp = 50000;
     std::uint32_t max_patch_gap_bp = 70000;
     std::uint32_t patch_window_bp = 1000;
+    std::uint32_t patch_window_slack_bp = 300;
+    std::uint32_t max_patch_indel_bp = 200;
     double min_patch_identity = 0.85;
     std::uint32_t max_wfa_memory_gb = 64;
     std::uint32_t max_chain_extension_bp = 70000;
