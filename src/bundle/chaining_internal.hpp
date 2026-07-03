@@ -51,6 +51,7 @@ struct EmittedChain {
     std::uint64_t query_start = 0;
     std::uint64_t query_end = 0;
     double score = 0.0;
+    std::uint64_t both_anchor_count = 0;
     std::vector<Candidate> anchors;
 };
 

@@ -130,6 +130,7 @@ EmittedChain make_emitted_chain(const std::uint64_t chain_id,
     for (const auto index : chain) {
         emitted.query_start = std::min(emitted.query_start, group[index].query_center);
         emitted.query_end = std::max(emitted.query_end, group[index].query_center);
+        if (group[index].support_direction == "both") ++emitted.both_anchor_count;
         emitted.anchors.push_back(group[index]);
     }
     return emitted;

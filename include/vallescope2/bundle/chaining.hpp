@@ -18,6 +18,7 @@ struct ChainingParameters {
     double gap_weight = 0.002;
     std::uint32_t gap_unit = 10;
     std::uint32_t min_chain_anchors = 20;
+    std::uint32_t min_chain_both_anchors = 0;
     double min_chain_score = 0.0;
     double chain_trim_overlap = 0.01;
     std::uint32_t refinement_window = 50000;

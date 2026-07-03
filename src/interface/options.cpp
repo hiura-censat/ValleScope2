@@ -37,6 +37,7 @@ void print_usage(std::ostream& output) {
            << "  --gap-cost-model MODE  absolute or relative [absolute]\n"
            << "  --gap-weight FLOAT  Linear chaining gap weight [0.002]\n"
            << "  --min-chain-anchors INT  Minimum anchors per emitted chain [20]\n"
+           << "  --min-chain-both-anchors INT  Minimum both-supported anchors per emitted chain [0]\n"
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
            << "  --chain-trim-overlap FLOAT  Ref/query overlap for trimming lower-score chains/bundles [0.01]\n"
            << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
@@ -181,6 +182,9 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
                 parse_double(argc, argv, index, argument);
         else if (argument == "--min-chain-anchors")
             options.chaining.min_chain_anchors =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-chain-both-anchors")
+            options.chaining.min_chain_both_anchors =
                 parse_unsigned(argc, argv, index, argument);
         else if (argument == "--min-chain-score")
             options.chaining.min_chain_score =

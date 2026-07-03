@@ -61,6 +61,14 @@ def parse_source(value):
     return match.group(1), int(match.group(2)), int(match.group(3))
 
 
+def parse_target(value):
+    # Example: chr1_124500000-125500000:322210
+    match = re.match(r"(.+):(\d+)$", value)
+    if not match:
+        return None
+    return match.group(1), int(match.group(2))
+
+
 def read_vcf(path):
     sample = None
     records = []
@@ -88,6 +96,12 @@ def read_vcf(path):
                 ref_start = pos1 - 1
                 ref_end = max(ref_start, end1)
                 query_delta = abs(svlen)
+            if info.get("SOURCE") and info.get("TARGET"):
+                target = parse_target(info["TARGET"])
+                if target:
+                    fields[0] = target[0]
+                    ref_start = target[1]
+                    ref_end = target[1]
             records.append({
                 "chrom": fields[0],
                 "pos1": pos1,

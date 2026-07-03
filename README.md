@@ -160,6 +160,7 @@ Chaining and refinement:
 --gap-cost-model MODE              default: absolute
 --gap-weight FLOAT                 default: 0.002
 --min-chain-anchors INT            default: 20
+--min-chain-both-anchors INT       default: 0
 --min-chain-score FLOAT            default: 0
 --chain-trim-overlap FLOAT         default: 0.01
 --refinement-window INT            default: 50000
@@ -366,6 +367,9 @@ gap_cost = gap_weight * x + sqrt(1 + x) - 1
 ```
 
 Multiple chains are extracted iteratively after removing used candidates.
+`--min-chain-both-anchors` can require at least N reciprocally supported
+(`support_direction=both`) anchor pairs per emitted chain; this is useful for
+filtering one-direction-only repeat-copy chains during QC.
 
 Outputs:
 

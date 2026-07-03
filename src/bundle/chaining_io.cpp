@@ -251,7 +251,8 @@ void write_chain(std::ostream& chains,
     chains << chain.id << '\t' << chain.sample_a << '\t'
            << chain.sample_b << '\t' << chain.sequence_a << '\t'
            << chain.sequence_b << '\t' << chain.strand << '\t'
-           << chain.anchors.size() << '\t' << chain.score << '\t'
+           << chain.anchors.size() << '\t' << chain.both_anchor_count << '\t'
+           << chain.score << '\t'
            << chain.ref_start << '\t' << chain.ref_end << '\t'
            << chain.query_start << '\t' << chain.query_end << '\n';
     std::uint64_t rank = 0;
@@ -277,7 +278,8 @@ void write_refined_chain(std::ostream& chains,
            << right_chain_id << '\t' << chain.sample_a << '\t'
            << chain.sample_b << '\t' << chain.sequence_a << '\t'
            << chain.sequence_b << '\t' << chain.strand << '\t'
-           << chain.anchors.size() << '\t' << chain.score << '\t'
+           << chain.anchors.size() << '\t' << chain.both_anchor_count << '\t'
+           << chain.score << '\t'
            << chain.ref_start << '\t' << chain.ref_end << '\t'
            << chain.query_start << '\t' << chain.query_end << '\n';
     std::uint64_t rank = 0;
@@ -306,6 +308,8 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"gap_weight\": " << parameters.gap_weight << ",\n"
            << "  \"gap_unit\": " << parameters.gap_unit << ",\n"
            << "  \"min_chain_anchors\": " << parameters.min_chain_anchors << ",\n"
+           << "  \"min_chain_both_anchors\": "
+           << parameters.min_chain_both_anchors << ",\n"
            << "  \"min_chain_score\": " << parameters.min_chain_score << ",\n"
            << "  \"chain_trim_overlap\": " << parameters.chain_trim_overlap << ",\n"
            << "  \"refinement_window\": " << parameters.refinement_window << ",\n"

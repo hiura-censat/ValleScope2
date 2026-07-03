@@ -105,7 +105,7 @@ ChainingResult build_anchor_chains(
     std::ofstream chain_anchors(chain_anchor_output);
     if (!chain_anchors) throw std::runtime_error("cannot create chain anchor output");
     chains << "chain_id\tsample_a\tsample_b\tsequence_a\tsequence_b"
-              "\tassign_strand\tn_candidates\tchain_score"
+              "\tassign_strand\tn_candidates\tboth_anchor_count\tchain_score"
               "\tref_start\tref_end\tquery_start\tquery_end\n";
     chain_anchors << "chain_id\trank\tsample_a\tsample_b\tanchor_a\tanchor_b"
                      "\tref_center\tquery_center\tassign_strand"
@@ -140,6 +140,18 @@ ChainingResult build_anchor_chains(
 
             auto emitted =
                 make_emitted_chain(primary_chains.size(), group, chain, chain_score);
+            if (emitted.both_anchor_count < parameters.min_chain_both_anchors) {
+                std::vector<Candidate> remaining;
+                remaining.reserve(group.size() - chain.size());
+                for (std::size_t index = 0; index < group.size(); ++index) {
+                    if (used[index])
+                        refinement_candidates.push_back(std::move(group[index]));
+                    else
+                        remaining.push_back(std::move(group[index]));
+                }
+                group = std::move(remaining);
+                continue;
+            }
             primary_chains.push_back(std::move(emitted));
 
             std::vector<Candidate> remaining;

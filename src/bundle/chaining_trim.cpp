@@ -88,6 +88,7 @@ EmittedChain make_chain_from_anchors(std::vector<Candidate> anchors,
     for (const auto& anchor : anchors) {
         chain.query_start = std::min(chain.query_start, anchor.query_center);
         chain.query_end = std::max(chain.query_end, anchor.query_center);
+        if (anchor.support_direction == "both") ++chain.both_anchor_count;
     }
     chain.score = path_score(anchors, parameters);
     chain.anchors = std::move(anchors);
@@ -139,6 +140,7 @@ std::vector<EmittedChain> split_after_trimming(
 bool chain_passes_filters(const EmittedChain& chain,
                           const ChainingParameters& parameters) {
     return chain.anchors.size() >= parameters.min_chain_anchors &&
+           chain.both_anchor_count >= parameters.min_chain_both_anchors &&
            chain.score >= parameters.min_chain_score;
 }
 
