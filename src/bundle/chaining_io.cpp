@@ -1,5 +1,7 @@
 #include "chaining_internal.hpp"
 
+#include "vallescope2/context/anchor_grouping.hpp"
+
 #include <cmath>
 #include <fstream>
 #include <limits>
@@ -91,7 +93,23 @@ double parse_required_score(const std::string& value,
 
 char parse_optional_strand(const std::string& value) {
     if (value == "+" || value == "-") return value.front();
-    return '+';
+    return '.';
+}
+
+char infer_anchor_pair_strand(const AnchorPosition& reference,
+                              const AnchorPosition& query) {
+    if (reference.sequence.empty() || query.sequence.empty()) return '.';
+    const bool forward = reference.sequence == query.sequence;
+    const bool reverse = reference.sequence == reverse_complement(query.sequence);
+    if (forward == reverse) return '.';
+    return forward ? '+' : '-';
+}
+
+char choose_candidate_strand(const char reported,
+                             const AnchorPosition& reference,
+                             const AnchorPosition& query) {
+    if (reported == '+' || reported == '-') return reported;
+    return infer_anchor_pair_strand(reference, query);
 }
 
 std::pair<double, char> choose_score_and_strand(
@@ -125,6 +143,7 @@ load_anchor_positions(const std::filesystem::path& path) {
     const auto sequence_column = require_column(columns, "sequence_id");
     const auto start_column = require_column(columns, "start");
     const auto end_column = require_column(columns, "end");
+    const auto sequence_text_column = require_column(columns, "anchor_seq");
 
     std::unordered_map<std::string, AnchorPosition> positions;
     while (std::getline(input, line)) {
@@ -133,6 +152,7 @@ load_anchor_positions(const std::filesystem::path& path) {
         if (fields.size() <= end_column) throw std::runtime_error("invalid grouped anchor row");
         AnchorPosition position;
         position.sequence_id = fields[sequence_column];
+        position.sequence = fields[sequence_text_column];
         position.start = parse_u64(fields[start_column], "start");
         position.end = parse_u64(fields[end_column], "end");
         position.center = (position.start + position.end) / 2;
@@ -177,6 +197,9 @@ std::vector<Candidate> load_candidates(
             fields[reverse_score_column], fields[forward_strand_column],
             fields[reverse_strand_column]);
         if (!std::isfinite(score_and_strand.first)) continue;
+        const char strand = choose_candidate_strand(
+            score_and_strand.second, position_a->second, position_b->second);
+        if (strand != '+' && strand != '-') continue;
         Candidate candidate;
         candidate.sample_a = fields[sample_a_column];
         candidate.sample_b = fields[sample_b_column];
@@ -188,7 +211,7 @@ std::vector<Candidate> load_candidates(
         candidate.ref_center = position_a->second.center;
         candidate.query_center = position_b->second.center;
         candidate.score = score_and_strand.first;
-        candidate.strand = score_and_strand.second == '-' ? '-' : '+';
+        candidate.strand = strand;
         candidates.push_back(std::move(candidate));
     }
     return candidates;
@@ -239,7 +262,11 @@ std::vector<Candidate> load_assignment_candidates(
         candidate.query_center = position_b->second.center;
         candidate.score = parse_required_score(fields[score_column],
                                                "candidate_score");
-        candidate.strand = fields[strand_column] == "-" ? '-' : '+';
+        const char reported_strand = parse_optional_strand(fields[strand_column]);
+        const char strand = choose_candidate_strand(
+            reported_strand, position_a->second, position_b->second);
+        if (strand != '+' && strand != '-') continue;
+        candidate.strand = strand;
         candidates.push_back(std::move(candidate));
     }
     return candidates;

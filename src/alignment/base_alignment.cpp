@@ -15,6 +15,8 @@ BaseAlignmentResult align_chain_bundles(
     const std::vector<std::filesystem::path>& chain_files,
     const std::vector<std::filesystem::path>& chain_anchor_files,
     const std::filesystem::path& grouped_anchors,
+    const std::filesystem::path& correspondences,
+    const std::filesystem::path& assignments,
     const std::filesystem::path& fasta,
     const std::filesystem::path& fasta_index,
     const std::filesystem::path& paf_output,
@@ -25,6 +27,11 @@ BaseAlignmentResult align_chain_bundles(
     AnchorStore anchor_store;
     const auto loaded_bundles = load_chain_files(
         chain_files, chain_anchor_files, grouped_anchors, anchor_store);
+    std::vector<ExtensionCandidate> extension_candidates;
+    if (parameters.chain_extension) {
+        extension_candidates = load_extension_candidates(
+            correspondences, assignments, grouped_anchors);
+    }
     BaseAlignmentResult result;
     result.loaded_bundle_count = loaded_bundles.size();
 
@@ -32,15 +39,22 @@ BaseAlignmentResult align_chain_bundles(
         fai_load3(fasta.c_str(), fasta_index.c_str(), nullptr, 0));
     if (!index) throw std::runtime_error("cannot load FASTA index for base alignment");
 
-    auto bundles = patch_adjacent_bundles(
-        loaded_bundles, index.get(), parameters, result.patch_count);
+    auto bundles = extend_adjacent_bundles(
+        loaded_bundles, extension_candidates, anchor_store, parameters,
+        metadata_output.parent_path() / "chain_extensions.tsv",
+        metadata_output.parent_path() / "chain_extension_anchors.tsv", result);
+    result.post_extension_bundle_count = bundles.size();
+
+    const auto pre_patch_bundle_count = bundles.size();
+    bundles = patch_adjacent_bundles(
+        std::move(bundles), index.get(), parameters, result.patch_count);
     result.post_patch_bundle_count = bundles.size();
     bundles = final_trim_bundles(
         std::move(bundles), parameters, result.bundle_trim_count);
     result.bundle_count = bundles.size();
     result.patched_bundle_count =
-        loaded_bundles.size() > result.post_patch_bundle_count
-            ? loaded_bundles.size() - result.post_patch_bundle_count
+        pre_patch_bundle_count > result.post_patch_bundle_count
+            ? pre_patch_bundle_count - result.post_patch_bundle_count
             : 0;
 
     std::ofstream paf(paf_output);

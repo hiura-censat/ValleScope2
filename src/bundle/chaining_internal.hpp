@@ -15,6 +15,7 @@ namespace chaining_detail {
 
 struct AnchorPosition {
     std::string sequence_id;
+    std::string sequence;
     std::uint64_t start = 0;
     std::uint64_t end = 0;
     std::uint64_t center = 0;

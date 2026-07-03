@@ -14,6 +14,7 @@ struct ProgramOptions {
     bool combine = false;
     bool debug = false;
     bool base_align = true;
+    bool chain_extension = true;
     bool dump_window_scores = false;
     std::uint32_t anchor_length = 50;
     std::uint32_t max_bundle_align_bp = 50000;
@@ -21,6 +22,10 @@ struct ProgramOptions {
     std::uint32_t patch_window_bp = 1000;
     double min_patch_identity = 0.85;
     std::uint32_t max_wfa_memory_gb = 64;
+    std::uint32_t max_chain_extension_bp = 70000;
+    std::uint32_t min_chain_extension_anchors = 1;
+    double min_chain_extension_score = 0.0;
+    std::uint32_t min_copy_support_anchors = 1;
     std::uint32_t min_center_distance = 50;
     std::uint32_t target_density = 15000;
     std::uint32_t distance_bin_size = 10;

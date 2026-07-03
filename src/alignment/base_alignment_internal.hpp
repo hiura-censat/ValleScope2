@@ -45,6 +45,24 @@ struct AnchorPair {
     std::uint64_t query_end = 0;
 };
 
+struct ExtensionCandidate {
+    std::string sample_a;
+    std::string sample_b;
+    std::string sequence_a;
+    std::string sequence_b;
+    std::string anchor_a;
+    std::string anchor_b;
+    std::string support_direction;
+    std::uint64_t ref_start = 0;
+    std::uint64_t ref_end = 0;
+    std::uint64_t ref_center = 0;
+    std::uint64_t query_start = 0;
+    std::uint64_t query_end = 0;
+    std::uint64_t query_center = 0;
+    double score = 0.0;
+    char strand = '+';
+};
+
 struct Interval {
     std::uint64_t start = 0;
     std::uint64_t end = 0;
@@ -82,6 +100,10 @@ std::vector<ChainBundle> load_chain_files(
     const std::vector<std::filesystem::path>& anchor_paths,
     const std::filesystem::path& grouped_anchors,
     AnchorStore& store);
+std::vector<ExtensionCandidate> load_extension_candidates(
+    const std::filesystem::path& correspondences,
+    const std::filesystem::path& assignments,
+    const std::filesystem::path& grouped_anchors);
 
 std::uint64_t sequence_length(faidx_t* index, const std::string& sequence_id);
 Interval expand_interval(std::uint64_t start,
@@ -125,6 +147,14 @@ std::optional<Alignment> anchor_guided_alignment(
     const BaseAlignmentParameters& parameters);
 
 bool same_bundle_track(const ChainBundle& left, const ChainBundle& right);
+std::vector<ChainBundle> extend_adjacent_bundles(
+    std::vector<ChainBundle> bundles,
+    const std::vector<ExtensionCandidate>& candidates,
+    AnchorStore& store,
+    const BaseAlignmentParameters& parameters,
+    const std::filesystem::path& extension_output,
+    const std::filesystem::path& extension_anchor_output,
+    BaseAlignmentResult& result);
 std::vector<ChainBundle> final_trim_bundles(
     std::vector<ChainBundle> bundles,
     const BaseAlignmentParameters& parameters,

@@ -294,10 +294,15 @@ int main() {
                       "\tcandidate_score\tsupport_direction\n"
                    << "0\t0\tsampleA\tsampleB\ta1\ta1\t3\t3\t+\t1\tboth\n";
         }
+        vallescope2::BaseAlignmentParameters base_parameters;
+        base_parameters.anchor_length = 6;
+        base_parameters.max_bundle_align_bp = 1000;
+        base_parameters.max_fallback_cells = 1000000;
+        base_parameters.chain_extension = false;
         const auto base_alignment_result = vallescope2::align_chain_bundles(
-            {base_chains}, {base_chain_anchors}, grouped, fasta, index,
-            bundle_paf, bundle_alignment_metadata,
-            {6, 1000, 1000000});
+            {base_chains}, {base_chain_anchors}, grouped, correspondences,
+            assignments, fasta, index, bundle_paf, bundle_alignment_metadata,
+            base_parameters);
         require(base_alignment_result.aligned_bundle_count >= 1,
                 "bundle base alignment was not produced");
         std::ifstream bundle_paf_stream(bundle_paf);

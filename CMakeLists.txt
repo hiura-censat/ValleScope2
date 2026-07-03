@@ -34,6 +34,7 @@ add_executable(vallescope2
     src/alignment/base_alignment.cpp
     src/alignment/base_alignment_io.cpp
     src/alignment/base_alignment_output.cpp
+    src/alignment/bundle_extension.cpp
     src/alignment/bundle_postprocessing.cpp
     src/anchor/anchor_detection.cpp
     src/anchor/anchor_output.cpp
@@ -85,6 +86,7 @@ if(BUILD_TESTING)
         src/alignment/base_alignment.cpp
         src/alignment/base_alignment_io.cpp
         src/alignment/base_alignment_output.cpp
+        src/alignment/bundle_extension.cpp
         src/alignment/bundle_postprocessing.cpp
         src/bundle/chaining.cpp
         src/bundle/chaining_dp.cpp

@@ -44,6 +44,12 @@ void print_usage(std::ostream& output) {
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
            << "  --base-align  Write base-level bundle PAF to stdout with cg:Z [default]\n"
            << "  --no-base-align  Stop after chaining and do not write final PAF\n"
+           << "  --chain-extension  Extend adjacent chains using correspondence DP before gap patching [default]\n"
+           << "  --no-chain-extension  Disable chain extension before gap patching\n"
+           << "  --max-chain-extension-bp INT  Maximum bundle gap considered for chain extension [70000]\n"
+           << "  --min-chain-extension-anchors INT  Minimum anchors for partial chain extension [1]\n"
+           << "  --min-chain-extension-score FLOAT  Minimum DP score for partial chain extension [0]\n"
+           << "  --min-copy-support-anchors INT  both-supported anchors needed to classify a residual as dup branch [1]\n"
            << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [50000]\n"
            << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
            << "  --patch-window-bp INT  Extension window size for gap patching [1000]\n"
@@ -137,6 +143,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--debug") options.debug = true;
         else if (argument == "--base-align") options.base_align = true;
         else if (argument == "--no-base-align") options.base_align = false;
+        else if (argument == "--chain-extension") options.chain_extension = true;
+        else if (argument == "--no-chain-extension") options.chain_extension = false;
         else if (argument == "--dump-window-scores") options.dump_window_scores = true;
         else if (argument == "-K" || argument == "--kmer-length")
             options.genmap.kmer_length = parse_unsigned(argc, argv, index, argument);
@@ -198,6 +206,18 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--refinement-min-chain-anchors")
             options.chaining.refinement_min_chain_anchors =
                 parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--max-chain-extension-bp")
+            options.max_chain_extension_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-chain-extension-anchors")
+            options.min_chain_extension_anchors =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-chain-extension-score")
+            options.min_chain_extension_score =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--min-copy-support-anchors")
+            options.min_copy_support_anchors =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "--max-bundle-align-bp")
             options.max_bundle_align_bp =
                 parse_unsigned(argc, argv, index, argument);
@@ -257,6 +277,10 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("minimum refinement chain anchor count must be greater than zero");
     if (options.max_bundle_align_bp == 0)
         throw std::runtime_error("maximum bundle alignment length must be greater than zero");
+    if (options.max_chain_extension_bp == 0)
+        throw std::runtime_error("maximum chain extension length must be greater than zero");
+    if (options.min_chain_extension_anchors == 0)
+        throw std::runtime_error("minimum chain extension anchor count must be greater than zero");
     if (options.patch_window_bp == 0)
         throw std::runtime_error("patch window size must be greater than zero");
     if (options.min_patch_identity < 0.0 || options.min_patch_identity > 1.0)

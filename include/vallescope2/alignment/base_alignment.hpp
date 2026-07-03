@@ -1,5 +1,7 @@
 #pragma once
 
+#include "vallescope2/bundle/chaining.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <vector>
@@ -15,11 +17,30 @@ struct BaseAlignmentParameters {
     double min_patch_identity = 0.85;
     std::uint32_t max_wfa_memory_gb = 64;
     double bundle_trim_overlap = 0.01;
+    bool chain_extension = true;
+    std::uint32_t chain_extension_predecessors = 50;
+    std::uint32_t max_chain_extension_bp = 70000;
+    std::uint32_t max_chain_gap = 750;
+    double chain_max_gap_ratio = 1.05;
+    GapCostModel gap_cost_model = GapCostModel::absolute;
+    double gap_weight = 0.002;
+    std::uint32_t gap_unit = 10;
+    std::uint32_t min_chain_extension_anchors = 1;
+    double min_chain_extension_score = 0.0;
+    std::uint32_t min_copy_support_anchors = 1;
 };
 
 struct BaseAlignmentResult {
     std::uint64_t loaded_bundle_count = 0;
     std::uint64_t post_patch_bundle_count = 0;
+    std::uint64_t post_extension_bundle_count = 0;
+    std::uint64_t extension_count = 0;
+    std::uint64_t extension_partial_count = 0;
+    std::uint64_t extension_query_dup_branch_count = 0;
+    std::uint64_t extension_ref_dup_branch_count = 0;
+    std::uint64_t extension_query_insertion_count = 0;
+    std::uint64_t extension_query_deletion_count = 0;
+    std::uint64_t extension_unresolved_gap_count = 0;
     std::uint64_t bundle_trim_count = 0;
     std::uint64_t bundle_count = 0;
     std::uint64_t patched_bundle_count = 0;
@@ -41,6 +62,8 @@ BaseAlignmentResult align_chain_bundles(
     const std::vector<std::filesystem::path>& chain_files,
     const std::vector<std::filesystem::path>& chain_anchor_files,
     const std::filesystem::path& grouped_anchors,
+    const std::filesystem::path& correspondences,
+    const std::filesystem::path& assignments,
     const std::filesystem::path& fasta,
     const std::filesystem::path& fasta_index,
     const std::filesystem::path& paf_output,

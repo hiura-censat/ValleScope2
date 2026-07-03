@@ -172,6 +172,12 @@ Base-level bundle alignment:
 ```text
 --base-align
 --no-base-align
+--chain-extension                 default: on
+--no-chain-extension
+--max-chain-extension-bp INT      default: 70000
+--min-chain-extension-anchors INT default: 1
+--min-chain-extension-score FLOAT default: 0
+--min-copy-support-anchors INT    default: 1
 --max-bundle-align-bp INT          default: 50000
 --max-patch-gap-bp INT            default: 70000
 --patch-window-bp INT             default: 1000

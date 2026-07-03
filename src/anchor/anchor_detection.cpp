@@ -165,14 +165,36 @@ void run_anchor_detection(const ProgramOptions& options) {
     std::chrono::duration<double> base_alignment_time{0};
     if (options.base_align) {
         const auto base_alignment_start = std::chrono::steady_clock::now();
+        BaseAlignmentParameters base_parameters;
+        base_parameters.anchor_length = options.anchor_length;
+        base_parameters.max_bundle_align_bp = options.max_bundle_align_bp;
+        base_parameters.max_patch_gap_bp = options.max_patch_gap_bp;
+        base_parameters.patch_window_bp = options.patch_window_bp;
+        base_parameters.min_patch_identity = options.min_patch_identity;
+        base_parameters.max_wfa_memory_gb = options.max_wfa_memory_gb;
+        base_parameters.bundle_trim_overlap = options.chaining.chain_trim_overlap;
+        base_parameters.chain_extension = options.chain_extension;
+        base_parameters.chain_extension_predecessors =
+            options.chaining.predecessor_count;
+        base_parameters.max_chain_extension_bp =
+            options.max_chain_extension_bp;
+        base_parameters.max_chain_gap = options.chaining.max_chain_gap;
+        base_parameters.chain_max_gap_ratio =
+            options.chaining.chain_max_gap_ratio;
+        base_parameters.gap_cost_model = options.chaining.gap_cost_model;
+        base_parameters.gap_weight = options.chaining.gap_weight;
+        base_parameters.gap_unit = options.chaining.gap_unit;
+        base_parameters.min_chain_extension_anchors =
+            options.min_chain_extension_anchors;
+        base_parameters.min_chain_extension_score =
+            options.min_chain_extension_score;
+        base_parameters.min_copy_support_anchors =
+            options.min_copy_support_anchors;
         base_alignment = align_chain_bundles(
             {chains}, {chain_anchors},
-            grouped_anchors, genmap.input_fasta, context_index, bundle_alignments,
-            bundle_alignment_metadata,
-            {options.anchor_length, options.max_bundle_align_bp, 25000000,
-             options.max_patch_gap_bp, options.patch_window_bp,
-             options.min_patch_identity, options.max_wfa_memory_gb,
-             options.chaining.chain_trim_overlap});
+            grouped_anchors, correspondences, assignments, genmap.input_fasta,
+            context_index, bundle_alignments, bundle_alignment_metadata,
+            base_parameters);
         base_alignment_time =
             std::chrono::steady_clock::now() - base_alignment_start;
     }
@@ -271,7 +293,9 @@ void run_anchor_detection(const ProgramOptions& options) {
                   << " of " << base_alignment.bundle_count
                   << " bundle(s); skipped "
                   << base_alignment.skipped_bundle_count
-                  << "; patched " << base_alignment.patch_count
+                  << "; chain-extended " << base_alignment.extension_partial_count
+                  << " partial path(s) from " << base_alignment.extension_count
+                  << " adjacent gap(s); patched " << base_alignment.patch_count
                   << " gap(s) into " << base_alignment.patched_bundle_count
                   << " merged bundle(s); final-trimmed "
                   << base_alignment.bundle_trim_count
