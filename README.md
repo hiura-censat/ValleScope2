@@ -117,6 +117,8 @@ Input and debugging:
 --debug
 --dump-window-scores
 --genmap PATH
+-h, --help
+-v, --version
 ```
 
 GenMap:
@@ -146,6 +148,7 @@ Correspondence assignment:
 
 ```text
 -bt, --beta-tolerance INT          default: 30
+--min-shared-tmus INT              default: 3
 -mcs, --min-candidate-score INT    default: 10
 -pm, --primary-margin INT          default: 5
 --pair-merge-mode MODE             union or reciprocal, default: union
@@ -181,6 +184,8 @@ Base-level bundle alignment:
 --max-bundle-align-bp INT          default: 50000
 --max-patch-gap-bp INT            default: 70000
 --patch-window-bp INT             default: 1000
+--patch-window-slack-bp INT       default: 300
+--max-patch-indel-bp INT          default: 200
 --min-patch-identity FLOAT        default: 0.85
 --max-wfa-memory-gb INT           default: 64
 ```
@@ -315,6 +320,7 @@ For each ordered target-query sample pair, ValleScope2 assigns query anchors to
 target anchors using:
 
 - exact canonical context key match
+- shared exact tMUS fast match
 - fallback search among anchors with the same anchor group ID
 - bounded token-level edit distance for candidate search
 - `candidate_score = q_alpha_prime + r_alpha_prime - edit_distance`
@@ -324,6 +330,10 @@ Candidates are retained when:
 ```text
 candidate_score > --min-candidate-score
 ```
+
+The shared tMUS fast path uses `--min-shared-tmus`. When a query context has a
+single same-group target candidate with at least this many shared exact tMUS
+substrings, that candidate can be accepted before the edit-distance fallback.
 
 Directed assignments are merged per sample pair into final correspondences.
 
@@ -418,9 +428,16 @@ alignment.
 
 Before WFA2 alignment, adjacent bundles on the same sample pair, sequence pair,
 and strand are tested for gap patching. If both the ref and query gaps are at
-most `--max-patch-gap-bp`, and extension windows keep at least
-`--min-patch-identity` by Levenshtein edit distance, the two bundles are merged
-and aligned as one patched bundle.
+most `--max-patch-gap-bp`, ValleScope2 extends from both bundle ends with
+WFA-based local extension windows. The base window size is
+`--patch-window-bp`; an additional `--patch-window-slack-bp` bases are fetched
+to tolerate local indels during extension. A patch step is accepted while the
+extension identity is at least `--min-patch-identity`.
+
+When the extension CIGAR contains an insertion or deletion longer than
+`--max-patch-indel-bp`, extension stops before that long event so the breakpoint
+can remain explicit. Clean patch joins may merge adjacent bundles, while bridge
+or unresolved gaps are kept as separate bundle intervals.
 
 After gap patching, the final bundle set is overlap-trimmed immediately before
 base alignment. Lower-scoring bundles are trimmed only when both the ref and
