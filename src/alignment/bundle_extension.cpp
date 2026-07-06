@@ -147,6 +147,79 @@ double gap_cost(const ExtensionNode& predecessor,
     return parameters.gap_weight * x + std::log2(1.0 + x);
 }
 
+bool intervals_overlap(const std::uint64_t a_start,
+                       const std::uint64_t a_end,
+                       const std::uint64_t b_start,
+                       const std::uint64_t b_end) {
+    return std::max(a_start, b_start) < std::min(a_end, b_end);
+}
+
+bool extension_endpoint_is_safe(const ChainBundle& left,
+                                const ChainBundle& right,
+                                const ExtensionCandidate& endpoint) {
+    const bool existing_ref_overlap =
+        intervals_overlap(left.ref_start, left.ref_end, right.ref_start,
+                          right.ref_end);
+    const bool existing_query_overlap =
+        intervals_overlap(left.query_start, left.query_end, right.query_start,
+                          right.query_end);
+
+    const auto extended_ref_end = std::max(left.ref_end, endpoint.ref_end);
+    const auto extended_query_start =
+        std::min(left.query_start, endpoint.query_start);
+    const auto extended_query_end =
+        std::max(left.query_end, endpoint.query_end);
+
+    const bool new_ref_overlap =
+        intervals_overlap(left.ref_start, extended_ref_end, right.ref_start,
+                          right.ref_end);
+    const bool new_query_overlap =
+        intervals_overlap(extended_query_start, extended_query_end,
+                          right.query_start, right.query_end);
+
+    if (existing_ref_overlap || existing_query_overlap) {
+        return !(new_ref_overlap && new_query_overlap);
+    }
+    return !(new_ref_overlap || new_query_overlap);
+}
+
+std::size_t safe_extension_prefix_size(
+    const ChainBundle& left,
+    const ChainBundle& right,
+    const std::vector<const ExtensionCandidate*>& path) {
+    std::size_t safe_size = 0;
+    for (const auto* anchor : path) {
+        if (!extension_endpoint_is_safe(left, right, *anchor)) break;
+        ++safe_size;
+    }
+    return safe_size;
+}
+
+double extension_path_prefix_score(
+    const std::vector<const ExtensionCandidate*>& path,
+    const std::size_t prefix_size,
+    const ChainBundle& left,
+    const BaseAlignmentParameters& parameters) {
+    if (prefix_size == 0) return 0.0;
+
+    ExtensionNode predecessor;
+    predecessor.ref_center = left.ref_end;
+    predecessor.query_center = left.strand == '+' ? left.query_end : left.query_start;
+    predecessor.is_seed = true;
+
+    double score = 0.0;
+    for (std::size_t index = 0; index < prefix_size; ++index) {
+        ExtensionNode current;
+        current.candidate = path[index];
+        current.ref_center = path[index]->ref_center;
+        current.query_center = path[index]->query_center;
+        current.score = path[index]->score;
+        score += current.score - gap_cost(predecessor, current, parameters);
+        predecessor = current;
+    }
+    return score;
+}
+
 std::vector<const ExtensionCandidate*> ordered_gap_candidates(
     const std::vector<ExtensionCandidate>& candidates,
     const ChainBundle& left,
@@ -307,6 +380,21 @@ ExtensionAttempt run_extension_dp(
         if (states[index].predecessor < 0) break;
     }
     std::reverse(path.begin(), path.end());
+
+    const std::size_t original_path_size = path.size();
+    const std::size_t safe_size =
+        safe_extension_prefix_size(left, right, path);
+    if (safe_size < path.size()) {
+        path.resize(safe_size);
+        best_score =
+            extension_path_prefix_score(path, safe_size, left, parameters);
+    }
+    if (path.empty()) {
+        attempt.stop_reason =
+            original_path_size == 0 ? "no_reachable_candidate" : "overlap_clipped";
+        return attempt;
+    }
+
     if (path.size() < parameters.min_chain_extension_anchors ||
         best_score < parameters.min_chain_extension_score) {
         attempt.stop_reason = "below_threshold";
@@ -317,7 +405,9 @@ ExtensionAttempt run_extension_dp(
 
     const auto* last = path.back();
     attempt.classification = "partial_extension";
-    attempt.stop_reason = "best_partial_path";
+    attempt.stop_reason =
+        safe_size < original_path_size ? "best_partial_path_overlap_clipped"
+                                       : "best_partial_path";
     attempt.anchors = std::move(path);
     attempt.score = best_score;
     attempt.remaining_ref_gap = positive_gap(last->ref_end, right.ref_start);
