@@ -278,11 +278,11 @@ def clip_interval_to_ref(item, ref0, ref1):
     return ct0, ct1, cq0, cq1
 
 
-def pair_anchor(row, sample):
+def pair_anchor(row, ref_seq, sample):
     a, b = row["a"], row["b"]
-    if a["seq"] == "chr1_124500000-125500000" and b["seq"] == sample:
+    if a["seq"] == ref_seq and b["seq"] == sample:
         return a, b
-    if b["seq"] == "chr1_124500000-125500000" and a["seq"] == sample:
+    if b["seq"] == ref_seq and a["seq"] == sample:
         return b, a
     return None
 
@@ -311,7 +311,7 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
 
     assignments = []
     for row in evidence["correspondences"]:
-        pair = pair_anchor(row, sample)
+        pair = pair_anchor(row, ref_seq, sample)
         if not pair:
             continue
         ref_a, q_a = pair
@@ -320,7 +320,7 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
 
     chain_anchors = []
     for row in evidence["chain_anchors"]:
-        pair = pair_anchor(row, sample)
+        pair = pair_anchor(row, ref_seq, sample)
         if not pair:
             continue
         ref_a, q_a = pair
@@ -329,7 +329,7 @@ def draw_sv_plot(sv, out_png, lengths, evidence, window, query_pad, width, heigh
 
     refined_anchors = []
     for row in evidence["refined_chain_anchors"]:
-        pair = pair_anchor(row, sample)
+        pair = pair_anchor(row, ref_seq, sample)
         if not pair:
             continue
         ref_a, q_a = pair

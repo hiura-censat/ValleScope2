@@ -4,12 +4,47 @@
 
 #include <htslib/faidx.h>
 
+#include <algorithm>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <utility>
 
 namespace vallescope2 {
+namespace {
+
+enum class BundleAxis { ref, query };
+
+alignment_detail::Interval bundle_alignment_interval(
+    const alignment_detail::ChainBundle& bundle,
+    const alignment_detail::AnchorStore& anchor_store,
+    const std::uint64_t sequence_length,
+    const BundleAxis axis) {
+    auto start = axis == BundleAxis::ref ? bundle.ref_start : bundle.query_start;
+    auto end = axis == BundleAxis::ref ? bundle.ref_end : bundle.query_end;
+    if (end < start) std::swap(start, end);
+
+    for (const auto anchor_index : bundle.anchor_indices) {
+        if (anchor_index >= anchor_store.anchors.size()) continue;
+        const auto& anchor = anchor_store.anchors[anchor_index];
+        const auto anchor_start =
+            axis == BundleAxis::ref ? anchor.ref_start : anchor.query_start;
+        const auto anchor_end =
+            axis == BundleAxis::ref ? anchor.ref_end : anchor.query_end;
+        start = std::min(start, anchor_start);
+        end = std::max(end, anchor_end);
+    }
+
+    start = std::min(start, sequence_length);
+    end = std::min(end, sequence_length);
+    if (end <= start && sequence_length > 0) {
+        start = std::min(start, sequence_length - 1);
+        end = start + 1;
+    }
+    return {start, end};
+}
+
+}  // namespace
 
 BaseAlignmentResult align_chain_bundles(
     const std::vector<std::filesystem::path>& chain_files,
@@ -85,10 +120,10 @@ BaseAlignmentResult align_chain_bundles(
     for (const auto& bundle : bundles) {
         const auto ref_length = sequence_length(index.get(), bundle.sequence_a);
         const auto query_length = sequence_length(index.get(), bundle.sequence_b);
-        const auto ref_interval = expand_interval(
-            bundle.ref_start, bundle.ref_end, ref_length, parameters.anchor_length);
-        const auto query_interval = expand_interval(
-            bundle.query_start, bundle.query_end, query_length, parameters.anchor_length);
+        const auto ref_interval = bundle_alignment_interval(
+            bundle, anchor_store, ref_length, BundleAxis::ref);
+        const auto query_interval = bundle_alignment_interval(
+            bundle, anchor_store, query_length, BundleAxis::query);
         const auto ref_span = ref_interval.end - ref_interval.start;
         const auto query_span = query_interval.end - query_interval.start;
         if (ref_span > parameters.max_bundle_align_bp ||
