@@ -343,8 +343,8 @@ PatchExtensionStep trusted_wfa_prefix(const std::string& ref,
         1024ULL * 1024ULL;
     aligner.setMaxMemory(max_memory, max_memory);
     const auto status = aligner.alignExtension(
-        query.c_str(), static_cast<int>(query.size()), ref.c_str(),
-        static_cast<int>(ref.size()));
+        ref.c_str(), static_cast<int>(ref.size()), query.c_str(),
+        static_cast<int>(query.size()));
     if (status < 0) return best;
     const std::string cigar = aligner.getCIGAR(true);
     best.cigar = cigar;

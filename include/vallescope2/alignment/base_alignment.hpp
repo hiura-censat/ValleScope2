@@ -58,6 +58,10 @@ struct BaseAlignmentResult {
     std::uint64_t no_valid_anchor_bundle_count = 0;
     std::uint64_t segment_alignment_failed_count = 0;
     std::uint64_t skipped_bundle_count = 0;
+    std::uint64_t paf_normalization_event_count = 0;
+    std::uint64_t paf_normalization_clipped_block_count = 0;
+    std::uint64_t paf_normalization_unresolved_overlap_count = 0;
+    std::uint64_t paf_normalization_realign_count = 0;
 };
 
 BaseAlignmentResult align_chain_bundles(

@@ -87,7 +87,15 @@ void write_metadata(const std::filesystem::path& path,
            << result.no_valid_anchor_bundle_count << ",\n"
            << "  \"segment_alignment_failed_count\": "
            << result.segment_alignment_failed_count << ",\n"
-           << "  \"skipped_bundle_count\": " << result.skipped_bundle_count << "\n"
+           << "  \"skipped_bundle_count\": " << result.skipped_bundle_count << ",\n"
+           << "  \"paf_normalization_event_count\": "
+           << result.paf_normalization_event_count << ",\n"
+           << "  \"paf_normalization_clipped_block_count\": "
+           << result.paf_normalization_clipped_block_count << ",\n"
+           << "  \"paf_normalization_unresolved_overlap_count\": "
+           << result.paf_normalization_unresolved_overlap_count << ",\n"
+           << "  \"paf_normalization_realign_count\": "
+           << result.paf_normalization_realign_count << "\n"
            << "}\n";
 }
 

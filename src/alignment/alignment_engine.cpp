@@ -241,7 +241,7 @@ Alignment global_align_wfa2(const std::string& ref,
         4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
     const auto max_memory = gibibytes_to_bytes(max_memory_gb);
     aligner.setMaxMemory(max_memory, max_memory);
-    const auto status = aligner.alignEnd2End(query, ref);
+    const auto status = aligner.alignEnd2End(ref, query);
     if (status < 0) {
         throw std::runtime_error("WFA2 alignment failed");
     }
