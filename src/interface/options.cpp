@@ -56,6 +56,10 @@ void print_usage(std::ostream& output) {
            << "  --patch-window-slack-bp INT  Extra sequence fetched for WFA extension patching [300]\n"
            << "  --max-patch-indel-bp INT  Stop WFA patch extension before longer I/D [200]\n"
            << "  --min-patch-identity FLOAT  Minimum extension identity for gap patching [0.85]\n"
+           << "  --joint-patch-align  Validate clean patches with joint WFA [default]\n"
+           << "  --no-joint-patch-align  Disable joint patch validation\n"
+           << "  --joint-patch-flank-bp INT  Trusted flank size for joint patch WFA [500]\n"
+           << "  --max-joint-patch-bp INT  Maximum ref/query span for joint patch WFA [80000]\n"
            << "  --max-wfa-memory-gb INT  WFA2 memory limit in GB [64]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
@@ -147,6 +151,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--no-base-align") options.base_align = false;
         else if (argument == "--chain-extension") options.chain_extension = true;
         else if (argument == "--no-chain-extension") options.chain_extension = false;
+        else if (argument == "--joint-patch-align") options.joint_patch_align = true;
+        else if (argument == "--no-joint-patch-align") options.joint_patch_align = false;
         else if (argument == "--dump-window-scores") options.dump_window_scores = true;
         else if (argument == "-K" || argument == "--kmer-length")
             options.genmap.kmer_length = parse_unsigned(argc, argv, index, argument);
@@ -238,6 +244,12 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--min-patch-identity")
             options.min_patch_identity =
                 parse_double(argc, argv, index, argument);
+        else if (argument == "--joint-patch-flank-bp")
+            options.joint_patch_flank_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--max-joint-patch-bp")
+            options.max_joint_patch_bp =
+                parse_unsigned(argc, argv, index, argument);
         else if (argument == "--max-wfa-memory-gb")
             options.max_wfa_memory_gb =
                 parse_unsigned(argc, argv, index, argument);
@@ -295,6 +307,10 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("maximum patch indel length must be greater than zero");
     if (options.min_patch_identity < 0.0 || options.min_patch_identity > 1.0)
         throw std::runtime_error("minimum patch identity must be between 0 and 1");
+    if (options.joint_patch_flank_bp == 0)
+        throw std::runtime_error("joint patch flank size must be greater than zero");
+    if (options.max_joint_patch_bp == 0)
+        throw std::runtime_error("maximum joint patch size must be greater than zero");
     if (options.max_wfa_memory_gb == 0)
         throw std::runtime_error("maximum WFA memory must be greater than zero");
     if (options.context_radius_tokens >

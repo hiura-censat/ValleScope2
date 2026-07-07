@@ -65,6 +65,17 @@ struct PatchAttempt {
     std::uint64_t copy_support_both_count = 0;
 };
 
+struct JointPatchValidation {
+    std::string status = "disabled";
+    Interval ref_interval;
+    Interval query_interval;
+    std::uint64_t ref_consumed = 0;
+    std::uint64_t query_consumed = 0;
+    double identity = 0.0;
+    std::string cigar;
+    bool accepted = true;
+};
+
 std::uint64_t positive_gap(const std::uint64_t left_end,
                            const std::uint64_t right_start) {
     return right_start > left_end ? right_start - left_end : 0;
@@ -328,6 +339,71 @@ std::string fetch_patch_query(faidx_t* index,
 std::string reversed(std::string sequence) {
     std::reverse(sequence.begin(), sequence.end());
     return sequence;
+}
+
+JointPatchValidation validate_joint_patch(
+    faidx_t* index,
+    const ChainBundle& left,
+    const ChainBundle& right,
+    const BaseAlignmentParameters& parameters) {
+    JointPatchValidation validation;
+    if (!parameters.joint_patch_align) return validation;
+
+    const auto ref_length = sequence_length(index, left.sequence_a);
+    const auto query_length = sequence_length(index, left.sequence_b);
+    const auto flank =
+        static_cast<std::uint64_t>(parameters.joint_patch_flank_bp);
+    validation.ref_interval = {
+        left.ref_end > flank ? left.ref_end - flank : 0,
+        std::min(ref_length, right.ref_start + flank)};
+
+    if (left.strand == '+') {
+        validation.query_interval = {
+            left.query_end > flank ? left.query_end - flank : 0,
+            std::min(query_length, right.query_start + flank)};
+    } else {
+        validation.query_interval = {
+            right.query_end > flank ? right.query_end - flank : 0,
+            std::min(query_length, left.query_start + flank)};
+    }
+
+    validation.ref_consumed =
+        validation.ref_interval.end - validation.ref_interval.start;
+    validation.query_consumed =
+        validation.query_interval.end - validation.query_interval.start;
+    if (validation.ref_consumed == 0 || validation.query_consumed == 0) {
+        validation.status = "joint_empty";
+        validation.accepted = false;
+        return validation;
+    }
+    if (validation.ref_consumed > parameters.max_joint_patch_bp ||
+        validation.query_consumed > parameters.max_joint_patch_bp) {
+        validation.status = "joint_skipped_long";
+        validation.accepted = true;
+        return validation;
+    }
+
+    const auto ref =
+        fetch_interval(index, left.sequence_a, validation.ref_interval);
+    const auto query = fetch_patch_query(
+        index, left.sequence_b, validation.query_interval, left.strand);
+    try {
+        const auto alignment = align_segment(ref, query, parameters);
+        validation.cigar = alignment.cigar;
+        validation.identity =
+            alignment.block_length == 0
+                ? 0.0
+                : static_cast<double>(alignment.matches) /
+                      static_cast<double>(alignment.block_length);
+        validation.accepted =
+            validation.identity >= parameters.min_patch_identity;
+        validation.status =
+            validation.accepted ? "joint_accepted" : "joint_rejected";
+    } catch (const std::exception&) {
+        validation.status = "joint_failed";
+        validation.accepted = false;
+    }
+    return validation;
 }
 
 PatchExtensionStep trusted_wfa_prefix(const std::string& ref,
@@ -599,6 +675,22 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
             attempt.merge = false;
         } else {
             attempt.classification = "unresolved";
+        }
+        if (attempt.merge) {
+            const auto validation =
+                validate_joint_patch(index, left, right, parameters);
+            write_step(step_index++, "joint", validation.ref_interval,
+                       validation.query_interval,
+                       {validation.ref_consumed, validation.query_consumed,
+                        validation.identity, validation.cigar,
+                        validation.accepted},
+                       validation.status.c_str(),
+                       left_ref_extension, left_query_extension,
+                       right_ref_extension, right_query_extension);
+            if (!validation.accepted) {
+                attempt.classification = validation.status;
+                attempt.merge = false;
+            }
         }
         return attempt;
     };

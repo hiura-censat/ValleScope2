@@ -17,6 +17,9 @@ struct BaseAlignmentParameters {
     std::uint32_t patch_window_slack_bp = 300;
     std::uint32_t max_patch_indel_bp = 200;
     double min_patch_identity = 0.85;
+    bool joint_patch_align = true;
+    std::uint32_t joint_patch_flank_bp = 500;
+    std::uint32_t max_joint_patch_bp = 80000;
     std::uint32_t max_wfa_memory_gb = 64;
     double bundle_trim_overlap = 0.01;
     bool chain_extension = true;

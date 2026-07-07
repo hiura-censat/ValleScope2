@@ -187,6 +187,10 @@ Base-level bundle alignment:
 --patch-window-slack-bp INT       default: 300
 --max-patch-indel-bp INT          default: 200
 --min-patch-identity FLOAT        default: 0.85
+--joint-patch-align               default: on
+--no-joint-patch-align
+--joint-patch-flank-bp INT        default: 500
+--max-joint-patch-bp INT          default: 80000
 --max-wfa-memory-gb INT           default: 64
 ```
 
