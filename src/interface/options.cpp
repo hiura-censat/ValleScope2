@@ -26,7 +26,6 @@ void print_usage(std::ostream& output) {
            << "  -td, --target-density INT  Target anchors per Mb [15000]\n"
            << "  -db, --distance-bin-size INT  Distance token bin size [10]\n"
            << "  -cr, --context-radius-tokens INT  Context radius in tokens [50]\n"
-           << "  -bt, --beta-tolerance INT  Legacy context ED tolerance [30]\n"
            << "  --min-shared-tmus INT  Shared exact tMUS fast-path threshold [3]\n"
            << "  -mcs, --min-candidate-score INT  Minimum candidate score [10]\n"
            << "  -pm, --primary-margin INT  Primary assignment score margin [5]\n"
@@ -168,8 +167,6 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
             options.distance_bin_size = parse_unsigned(argc, argv, index, argument);
         else if (argument == "-cr" || argument == "--context-radius-tokens")
             options.context_radius_tokens = parse_unsigned(argc, argv, index, argument);
-        else if (argument == "-bt" || argument == "--beta-tolerance")
-            options.assignment.beta_tolerance = parse_unsigned(argc, argv, index, argument);
         else if (argument == "--min-shared-tmus")
             options.assignment.min_shared_tmus =
                 parse_unsigned(argc, argv, index, argument);
@@ -316,10 +313,6 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
     if (options.context_radius_tokens >
         (std::numeric_limits<std::uint32_t>::max() - 1) / 2) {
         throw std::runtime_error("context radius is too large");
-    }
-    if (options.assignment.beta_tolerance ==
-        std::numeric_limits<std::uint32_t>::max()) {
-        throw std::runtime_error("beta tolerance is too large");
     }
     if (options.anchor_length < options.genmap.kmer_length)
         throw std::runtime_error("anchor length must be greater than or equal to k-mer length");

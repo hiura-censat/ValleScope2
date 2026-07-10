@@ -52,10 +52,8 @@ void write_metadata(const std::filesystem::path& path,
     std::ofstream output(path);
     if (!output) throw std::runtime_error("cannot create assignment metadata");
     output << "{\n"
-           << "  \"legacy_beta_tolerance\": " << parameters.beta_tolerance
-           << ",\n"
            << "  \"candidate_filter\": "
-              "\"candidate_score > min_candidate_score\",\n"
+           << "\"candidate_score > min_candidate_score\",\n"
            << "  \"min_candidate_score\": " << parameters.min_candidate_score
            << ",\n"
            << "  \"min_shared_tmus\": " << parameters.min_shared_tmus

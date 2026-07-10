@@ -443,6 +443,15 @@ When the extension CIGAR contains an insertion or deletion longer than
 can remain explicit. Clean patch joins may merge adjacent bundles, while bridge
 or unresolved gaps are kept as separate bundle intervals.
 
+Clean patch candidates are then validated with a joint WFA alignment by default.
+This second pass realigns the original adjacent-bundle gap together with trusted
+left and right flanks (`--joint-patch-flank-bp`). If the joint interval is no
+larger than `--max-joint-patch-bp` on both axes, the joint alignment identity
+must also satisfy `--min-patch-identity`; otherwise the candidate patch is kept
+as a separate unresolved bundle boundary. Window WFA is therefore used to find
+safe extension limits, while joint WFA is used to confirm final patch joins.
+Use `--no-joint-patch-align` to restore window-only patch decisions.
+
 After gap patching, the final bundle set is overlap-trimmed immediately before
 base alignment. Lower-scoring bundles are trimmed only when both the ref and
 query intervals overlap a higher-scoring bundle by at least
@@ -492,6 +501,7 @@ In debug mode, strand inference and skipped-bundle reports are also written:
 ```text
 strand_conflicts.tsv
 skipped_bundles.tsv
+patch_extensions.tsv
 ```
 
 ## Output summary
@@ -553,6 +563,38 @@ test/               lightweight regression tests
 Temporary visualization scripts under `scripts/` can convert chain TSVs to PAF
 and draw simple PNG ribbon plots. They are for inspection during development
 and are not part of the final alignment pipeline.
+
+Useful QC helpers:
+
+```bash
+scripts/debug_truth_sv_local_qc_png.py \
+  --debug-dir runs/jointpatch_qc_20260707/vallescope2-debug \
+  --paf runs/jointpatch_qc_20260707/all.paf \
+  --truth-vcf /path/to/sample01.truth.vcf \
+  --truth-vcf /path/to/sample02.truth.vcf \
+  --truth-vcf /path/to/sample03.truth.vcf \
+  --out-dir results/truth_sv_local_qc_jointpatch_20260707
+```
+
+This writes one local PNG per truth SV plus `summary.tsv`. To compose the same
+local panel with a left-side truth/FP schematic and to draw sample-level
+full-length overviews:
+
+```bash
+scripts/draw_jointpatch_qc_panels.py \
+  --local-summary results/truth_sv_local_qc_jointpatch_20260707/summary.tsv \
+  --local-out-dir results/truth_sv_local_qc_jointpatch_20260707_truth_left \
+  --paf runs/jointpatch_qc_20260707/all.paf \
+  --sequences runs/jointpatch_qc_20260707/vallescope2-debug/sequences.tsv \
+  --truth-vcf /path/to/sample01.truth.vcf \
+  --truth-vcf /path/to/sample02.truth.vcf \
+  --truth-vcf /path/to/sample03.truth.vcf \
+  --full-out-dir results/truth_sv_local_qc_jointpatch_20260707_full_length
+```
+
+The composed local PNGs place the expected truth or FP event on the left and
+the usual ValleScope2 local evidence plot on the right. The full-length PNGs
+show each sample against the reference with PAF ribbons and truth-SV markers.
 
 Run the lightweight regression test with:
 

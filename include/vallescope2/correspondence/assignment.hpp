@@ -11,7 +11,6 @@ enum class PairMergeMode {
 };
 
 struct AssignmentParameters {
-    std::uint32_t beta_tolerance = 30;
     std::uint32_t min_shared_tmus = 3;
     std::int64_t primary_margin = 5;
     std::int64_t min_candidate_score = 10;

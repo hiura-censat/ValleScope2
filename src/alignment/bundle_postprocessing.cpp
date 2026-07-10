@@ -76,6 +76,24 @@ struct JointPatchValidation {
     bool accepted = true;
 };
 
+struct MinimapPatchValidation {
+    std::string status = "gap_score_disabled";
+    Interval ref_interval;
+    Interval query_interval;
+    std::uint64_t ref_consumed = 0;
+    std::uint64_t query_consumed = 0;
+    std::uint64_t matches = 0;
+    std::uint64_t edits = 0;
+    std::uint64_t block_length = 0;
+    double identity = 0.0;
+    double edit_fraction = 0.0;
+    std::int64_t score = 0;
+    std::int64_t structural_penalty = 0;
+    std::int64_t patch_score = 0;
+    std::string cigar;
+    bool accepted = false;
+};
+
 std::uint64_t positive_gap(const std::uint64_t left_end,
                            const std::uint64_t right_start) {
     return right_start > left_end ? right_start - left_end : 0;
@@ -268,6 +286,46 @@ std::uint64_t query_gap_between(const ChainBundle& left,
     return right.query_end < left.query_start ? left.query_start - right.query_end : 0;
 }
 
+Interval query_gap_interval(const ChainBundle& left,
+                            const ChainBundle& right) {
+    if (left.strand == '+') return {left.query_end, right.query_start};
+    return {right.query_end, left.query_start};
+}
+
+bool overlaps_opposite_strand_bundle(
+    const ChainBundle& left,
+    const ChainBundle& right,
+    const std::vector<ChainBundle>& bundles,
+    const std::uint32_t minimum_overlap) {
+    const Interval ref_gap{left.ref_end, right.ref_start};
+    const Interval query_gap = query_gap_interval(left, right);
+    if (ref_gap.start >= ref_gap.end || query_gap.start >= query_gap.end) {
+        return false;
+    }
+
+    for (const auto& bundle : bundles) {
+        if (bundle.sample_a != left.sample_a ||
+            bundle.sample_b != left.sample_b ||
+            bundle.sequence_a != left.sequence_a ||
+            bundle.sequence_b != left.sequence_b ||
+            bundle.strand == left.strand) {
+            continue;
+        }
+        if (interval_overlap(ref_gap.start, ref_gap.end,
+                             bundle.ref_start, bundle.ref_end) <
+            minimum_overlap) {
+            continue;
+        }
+        if (interval_overlap(query_gap.start, query_gap.end,
+                             bundle.query_start, bundle.query_end) <
+            minimum_overlap) {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
 std::string bundle_track_key(const ChainBundle& bundle) {
     return bundle.sample_a + '\x1f' + bundle.sample_b + '\x1f' +
            bundle.sequence_a + '\x1f' + bundle.sequence_b + '\x1f' +
@@ -339,6 +397,131 @@ std::string fetch_patch_query(faidx_t* index,
 std::string reversed(std::string sequence) {
     std::reverse(sequence.begin(), sequence.end());
     return sequence;
+}
+
+std::int64_t minimap_gap_penalty(const std::uint64_t length) {
+    const std::int64_t len = static_cast<std::int64_t>(length);
+    return std::min<std::int64_t>(39 + 3 * len, 81 + len);
+}
+
+MinimapPatchValidation score_minimap_patch_cigar(
+    const std::string& cigar,
+    const std::string& ref,
+    const std::string& query) {
+    MinimapPatchValidation validation;
+    validation.cigar = cigar;
+    std::size_t ref_offset = 0;
+    std::size_t query_offset = 0;
+    std::size_t begin = 0;
+    while (begin < cigar.size()) {
+        std::size_t end = begin;
+        while (end < cigar.size() &&
+               std::isdigit(static_cast<unsigned char>(cigar[end]))) {
+            ++end;
+        }
+        if (end == begin || end >= cigar.size()) {
+            throw std::runtime_error("invalid gap-score CIGAR");
+        }
+        const auto length = parse_u64(cigar.substr(begin, end - begin),
+                                      "cigar_length");
+        const char op = cigar[end];
+        if (op == '=' || op == 'X' || op == 'M') {
+            for (std::uint64_t i = 0; i < length; ++i) {
+                const bool match =
+                    ref_offset + i < ref.size() &&
+                    query_offset + i < query.size() &&
+                    ref[ref_offset + i] == query[query_offset + i];
+                if (match) {
+                    ++validation.matches;
+                    ++validation.score;
+                } else {
+                    ++validation.edits;
+                    validation.score -= 19;
+                }
+            }
+            validation.block_length += length;
+            ref_offset += length;
+            query_offset += length;
+        } else if (op == 'I') {
+            validation.edits += length;
+            validation.block_length += length;
+            validation.score -= minimap_gap_penalty(length);
+            query_offset += length;
+        } else if (op == 'D') {
+            validation.edits += length;
+            validation.block_length += length;
+            validation.score -= minimap_gap_penalty(length);
+            ref_offset += length;
+        } else {
+            throw std::runtime_error("unsupported gap-score CIGAR operation");
+        }
+        begin = end + 1;
+    }
+    validation.identity =
+        validation.block_length == 0
+            ? 1.0
+            : static_cast<double>(validation.matches) /
+                  static_cast<double>(validation.block_length);
+    validation.edit_fraction =
+        validation.block_length == 0
+            ? 0.0
+            : static_cast<double>(validation.edits) /
+                  static_cast<double>(validation.block_length);
+    validation.patch_score = validation.score - validation.structural_penalty;
+    return validation;
+}
+
+MinimapPatchValidation validate_minimap_gap_patch(
+    faidx_t* index,
+    const ChainBundle& left,
+    const ChainBundle& right,
+    const BaseAlignmentParameters& parameters) {
+    MinimapPatchValidation validation;
+    validation.ref_interval = {left.ref_end, right.ref_start};
+    validation.query_interval = query_gap_interval(left, right);
+    validation.ref_consumed =
+        validation.ref_interval.end - validation.ref_interval.start;
+    validation.query_consumed =
+        validation.query_interval.end - validation.query_interval.start;
+
+    if (validation.ref_consumed == 0 && validation.query_consumed == 0) {
+        validation.status = "gap_score_empty";
+        validation.identity = 1.0;
+        validation.accepted = true;
+        return validation;
+    }
+    if (validation.ref_consumed > parameters.max_joint_patch_bp ||
+        validation.query_consumed > parameters.max_joint_patch_bp) {
+        validation.status = "gap_score_skipped_long";
+        validation.accepted = true;
+        return validation;
+    }
+
+    const auto ref =
+        fetch_interval(index, left.sequence_a, validation.ref_interval);
+    const auto query = fetch_patch_query(
+        index, left.sequence_b, validation.query_interval, left.strand);
+    try {
+        const auto alignment = align_segment(ref, query, parameters);
+        validation = score_minimap_patch_cigar(alignment.cigar, ref, query);
+        validation.ref_interval = {left.ref_end, right.ref_start};
+        validation.query_interval = query_gap_interval(left, right);
+        validation.ref_consumed =
+            validation.ref_interval.end - validation.ref_interval.start;
+        validation.query_consumed =
+            validation.query_interval.end - validation.query_interval.start;
+        validation.accepted =
+            validation.score >= 0 &&
+            validation.edit_fraction <= 0.05 &&
+            validation.identity >= 0.95 &&
+            validation.patch_score > 0;
+        validation.status =
+            validation.accepted ? "gap_score_accepted" : "gap_score_rejected";
+    } catch (const std::exception&) {
+        validation.status = "gap_score_failed";
+        validation.accepted = false;
+    }
+    return validation;
 }
 
 JointPatchValidation validate_joint_patch(
@@ -512,6 +695,7 @@ PatchExtensionStep extend_patch_window_wfa(
 PatchAttempt evaluate_patch_gap(faidx_t* index,
                                 const ChainBundle& left,
                                 const ChainBundle& right,
+                                const std::vector<ChainBundle>& bundles,
                                 const std::vector<ExtensionCandidate>& candidates,
                                 const BaseAlignmentParameters& parameters,
                                 std::ostream& patch_report,
@@ -540,6 +724,10 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
                           const Interval& query_interval,
                           const PatchExtensionStep& step,
                           const char* status,
+                          const char* minimap_score,
+                          const char* minimap_edit_fraction,
+                          const char* minimap_patch_score,
+                          const char* minimap_structural_penalty,
                           const std::uint64_t left_ref_extension_value,
                           const std::uint64_t left_query_extension_value,
                           const std::uint64_t right_ref_extension_value,
@@ -557,6 +745,10 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
             << step.ref_consumed << '\t' << step.query_consumed << '\t'
             << step.identity << '\t' << (step.success ? 1 : 0) << '\t'
             << step.cigar << '\t'
+            << minimap_score << '\t'
+            << minimap_edit_fraction << '\t'
+            << minimap_patch_score << '\t'
+            << minimap_structural_penalty << '\t'
             << left_ref_extension_value << '\t'
             << left_query_extension_value << '\t'
             << right_ref_extension_value << '\t'
@@ -677,6 +869,40 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
             attempt.classification = "unresolved";
         }
         if (attempt.merge) {
+            if (overlaps_opposite_strand_bundle(
+                    left, right, bundles, parameters.anchor_length)) {
+                attempt.classification = "opposite_strand_overlap";
+                attempt.merge = false;
+                return attempt;
+            }
+            const auto gap_validation =
+                validate_minimap_gap_patch(index, left, right, parameters);
+            const auto gap_score = std::to_string(gap_validation.score);
+            const auto gap_edit_fraction =
+                std::to_string(gap_validation.edit_fraction);
+            const auto gap_patch_score =
+                std::to_string(gap_validation.patch_score);
+            const auto gap_structural_penalty =
+                std::to_string(gap_validation.structural_penalty);
+            write_step(step_index++, "gap_score", gap_validation.ref_interval,
+                       gap_validation.query_interval,
+                       {gap_validation.ref_consumed,
+                        gap_validation.query_consumed,
+                        gap_validation.identity,
+                        gap_validation.cigar,
+                        gap_validation.accepted},
+                       gap_validation.status.c_str(),
+                       gap_score.c_str(),
+                       gap_edit_fraction.c_str(),
+                       gap_patch_score.c_str(),
+                       gap_structural_penalty.c_str(),
+                       left_ref_extension, left_query_extension,
+                       right_ref_extension, right_query_extension);
+            if (!gap_validation.accepted) {
+                attempt.classification = gap_validation.status;
+                attempt.merge = false;
+                return attempt;
+            }
             const auto validation =
                 validate_joint_patch(index, left, right, parameters);
             write_step(step_index++, "joint", validation.ref_interval,
@@ -685,6 +911,7 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
                         validation.identity, validation.cigar,
                         validation.accepted},
                        validation.status.c_str(),
+                       ".", ".", ".", ".",
                        left_ref_extension, left_query_extension,
                        right_ref_extension, right_query_extension);
             if (!validation.accepted) {
@@ -733,6 +960,7 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
                    left_step.success
                        ? (left_bridge_limited ? "bridge_limited" : "accepted")
                        : "failed",
+                   ".", ".", ".", ".",
                    left_ref_extension + left_step.ref_consumed,
                    left_query_extension + left_step.query_consumed,
                    right_ref_extension, right_query_extension);
@@ -787,6 +1015,7 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
                    right_step.success
                        ? (right_bridge_limited ? "bridge_limited" : "accepted")
                        : "failed",
+                   ".", ".", ".", ".",
                    left_ref_extension, left_query_extension,
                    right_ref_extension + right_step.ref_consumed,
                    right_query_extension + right_step.query_consumed);
@@ -849,6 +1078,8 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         << "\tref_window_end\tquery_window_start\tquery_window_end"
         << "\tref_window_len\tquery_window_len\tref_consumed"
         << "\tquery_consumed\tidentity\tsuccess\tcigar"
+        << "\tminimap_score\tminimap_edit_fraction"
+        << "\tminimap_patch_score\tminimap_structural_penalty"
         << "\tleft_ref_extension"
         << "\tleft_query_extension\tright_ref_extension"
         << "\tright_query_extension\tleft_ref_start\tleft_ref_end"
@@ -875,8 +1106,8 @@ std::vector<ChainBundle> patch_adjacent_bundles(
             continue;
         }
         const auto attempt = evaluate_patch_gap(
-            index, patched.back(), incoming, candidates, parameters, patch_report,
-            patch_id++);
+            index, patched.back(), incoming, bundles, candidates, parameters,
+            patch_report, patch_id++);
         if (!attempt.merge) {
             extend_left_bundle(patched.back(), attempt);
             extend_right_bundle(incoming, attempt);
