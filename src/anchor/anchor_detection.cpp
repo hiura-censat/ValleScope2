@@ -169,13 +169,7 @@ void run_anchor_detection(const ProgramOptions& options) {
         base_parameters.anchor_length = options.anchor_length;
         base_parameters.max_bundle_align_bp = options.max_bundle_align_bp;
         base_parameters.max_patch_gap_bp = options.max_patch_gap_bp;
-        base_parameters.patch_window_bp = options.patch_window_bp;
-        base_parameters.patch_window_slack_bp = options.patch_window_slack_bp;
-        base_parameters.max_patch_indel_bp = options.max_patch_indel_bp;
-        base_parameters.min_patch_identity = options.min_patch_identity;
-        base_parameters.joint_patch_align = options.joint_patch_align;
-        base_parameters.joint_patch_flank_bp = options.joint_patch_flank_bp;
-        base_parameters.max_joint_patch_bp = options.max_joint_patch_bp;
+        base_parameters.patch_flank_bp = options.patch_flank_bp;
         base_parameters.max_wfa_memory_gb = options.max_wfa_memory_gb;
         base_parameters.bundle_trim_overlap = options.chaining.chain_trim_overlap;
         base_parameters.chain_extension = options.chain_extension;

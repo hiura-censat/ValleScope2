@@ -183,14 +183,7 @@ Base-level bundle alignment:
 --min-copy-support-anchors INT    default: 1
 --max-bundle-align-bp INT          default: 50000
 --max-patch-gap-bp INT            default: 70000
---patch-window-bp INT             default: 1000
---patch-window-slack-bp INT       default: 300
---max-patch-indel-bp INT          default: 200
---min-patch-identity FLOAT        default: 0.85
---joint-patch-align               default: on
---no-joint-patch-align
---joint-patch-flank-bp INT        default: 500
---max-joint-patch-bp INT          default: 80000
+--patch-flank-bp INT              default: 500
 --max-wfa-memory-gb INT           default: 64
 ```
 
@@ -432,25 +425,14 @@ alignment.
 
 Before WFA2 alignment, adjacent bundles on the same sample pair, sequence pair,
 and strand are tested for gap patching. If both the ref and query gaps are at
-most `--max-patch-gap-bp`, ValleScope2 extends from both bundle ends with
-WFA-based local extension windows. The base window size is
-`--patch-window-bp`; an additional `--patch-window-slack-bp` bases are fetched
-to tolerate local indels during extension. A patch step is accepted while the
-extension identity is at least `--min-patch-identity`.
-
-When the extension CIGAR contains an insertion or deletion longer than
-`--max-patch-indel-bp`, extension stops before that long event so the breakpoint
-can remain explicit. Clean patch joins may merge adjacent bundles, while bridge
-or unresolved gaps are kept as separate bundle intervals.
-
-Clean patch candidates are then validated with a joint WFA alignment by default.
-This second pass realigns the original adjacent-bundle gap together with trusted
-left and right flanks (`--joint-patch-flank-bp`). If the joint interval is no
-larger than `--max-joint-patch-bp` on both axes, the joint alignment identity
-must also satisfy `--min-patch-identity`; otherwise the candidate patch is kept
-as a separate unresolved bundle boundary. Window WFA is therefore used to find
-safe extension limits, while joint WFA is used to confirm final patch joins.
-Use `--no-joint-patch-align` to restore window-only patch decisions.
+most `--max-patch-gap-bp`, ValleScope2 builds a single patch interval spanning
+the gap plus trusted flanks (`--patch-flank-bp`) on both sides. For `-` strand
+bundles, the query patch interval is reverse-complemented before alignment.
+The complete patch interval is aligned once with WFA2-lib end-to-end
+gap-affine-2-piece scoring using minimap2 asm5-style penalties:
+mismatch 19, gap open/extend 39/3 and 81/1. If this interval alignment
+completes, the adjacent bundles are merged and the merged bundle is realigned
+later by the normal anchor-guided base-alignment step.
 
 After gap patching, the final bundle set is overlap-trimmed immediately before
 base alignment. Lower-scoring bundles are trimmed only when both the ref and
@@ -501,7 +483,7 @@ In debug mode, strand inference and skipped-bundle reports are also written:
 ```text
 strand_conflicts.tsv
 skipped_bundles.tsv
-patch_extensions.tsv
+patch_intervals.tsv
 ```
 
 ## Output summary
