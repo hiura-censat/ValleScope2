@@ -17,7 +17,7 @@ struct ProgramOptions {
     bool chain_extension = true;
     bool dump_window_scores = false;
     std::uint32_t anchor_length = 50;
-    std::uint32_t max_bundle_align_bp = 50000;
+    std::uint32_t max_bundle_align_bp = 1000000;
     std::uint32_t max_patch_gap_bp = 70000;
     std::uint32_t patch_flank_bp = 500;
     std::uint32_t max_wfa_memory_gb = 64;

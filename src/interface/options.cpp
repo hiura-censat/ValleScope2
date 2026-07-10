@@ -49,7 +49,7 @@ void print_usage(std::ostream& output) {
            << "  --min-chain-extension-anchors INT  Minimum anchors for partial chain extension [1]\n"
            << "  --min-chain-extension-score FLOAT  Minimum DP score for partial chain extension [0]\n"
            << "  --min-copy-support-anchors INT  both-supported anchors needed to classify a residual as dup branch [1]\n"
-           << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [50000]\n"
+           << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [1000000]\n"
            << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
            << "  --patch-flank-bp INT  Trusted flank size for patch interval WFA [500]\n"
            << "  --max-wfa-memory-gb INT  WFA2 memory limit in GB [64]\n"

@@ -181,7 +181,7 @@ Base-level bundle alignment:
 --min-chain-extension-anchors INT default: 1
 --min-chain-extension-score FLOAT default: 0
 --min-copy-support-anchors INT    default: 1
---max-bundle-align-bp INT          default: 50000
+--max-bundle-align-bp INT          default: 1000000
 --max-patch-gap-bp INT            default: 70000
 --patch-flank-bp INT              default: 500
 --max-wfa-memory-gb INT           default: 64
@@ -431,8 +431,14 @@ bundles, the query patch interval is reverse-complemented before alignment.
 The complete patch interval is aligned once with WFA2-lib end-to-end
 gap-affine-2-piece scoring using minimap2 asm5-style penalties:
 mismatch 19, gap open/extend 39/3 and 81/1. If this interval alignment
-completes, the adjacent bundles are merged and the merged bundle is realigned
-later by the normal anchor-guided base-alignment step.
+has at least 0.95 global identity, the adjacent bundles are merged. A
+low-global-identity alignment is also accepted when its CIGAR contains exactly
+one long insertion or deletion of at least 500 bp, both aligned flanks are at
+least 200 bp with at least 0.95 identity, and all other insertions/deletions
+total at most 100 bp. The merged bundle is realigned later by the normal
+anchor-guided base-alignment step. Debug `patch_intervals.tsv` records the
+long-indel rescue operation, length, flank lengths, flank identities, and
+extra-indel total.
 
 After gap patching, the final bundle set is overlap-trimmed immediately before
 base alignment. Lower-scoring bundles are trimmed only when both the ref and

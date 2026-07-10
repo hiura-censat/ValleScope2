@@ -55,9 +55,30 @@ struct PatchAttempt {
     std::uint64_t matches = 0;
     std::uint64_t block_length = 0;
     double identity = 1.0;
+    char rescue_indel_op = '.';
+    std::uint64_t rescue_indel_len = 0;
+    std::uint64_t rescue_left_bp = 0;
+    std::uint64_t rescue_right_bp = 0;
+    double rescue_left_identity = 0.0;
+    double rescue_right_identity = 0.0;
+    std::uint64_t rescue_extra_indel_bp = 0;
+    std::uint64_t rescue_long_indel_count = 0;
+    bool long_indel_rescue = false;
     std::int64_t score = 0;
     std::string cigar;
 };
+
+struct PatchCigarOperation {
+    std::uint64_t length = 0;
+    char op = '.';
+    std::uint64_t aligned_bp = 0;
+    std::uint64_t matches = 0;
+};
+
+constexpr std::uint64_t kMinRescueIndelBp = 500;
+constexpr std::uint64_t kMinRescueFlankBp = 200;
+constexpr double kMinRescueFlankIdentity = 0.95;
+constexpr std::uint64_t kMaxRescueExtraIndelBp = 100;
 
 std::uint64_t positive_gap(const std::uint64_t left_end,
                            const std::uint64_t right_start) {
@@ -311,6 +332,7 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
                                    const std::string& query) {
     std::size_t ref_offset = 0;
     std::size_t query_offset = 0;
+    std::vector<PatchCigarOperation> operations;
     std::size_t begin = 0;
     while (begin < attempt.cigar.size()) {
         std::size_t end = begin;
@@ -324,12 +346,15 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
         const auto length = parse_u64(attempt.cigar.substr(begin, end - begin),
                                       "cigar_length");
         const char op = attempt.cigar[end];
+        PatchCigarOperation operation{length, op, 0, 0};
         if (op == '=' || op == 'X' || op == 'M') {
+            operation.aligned_bp = length;
             for (std::uint64_t i = 0; i < length; ++i) {
                 if (ref_offset + i < ref.size() &&
                     query_offset + i < query.size() &&
                     ref[ref_offset + i] == query[query_offset + i]) {
                     ++attempt.matches;
+                    ++operation.matches;
                 }
             }
             attempt.block_length += length;
@@ -344,6 +369,7 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
         } else {
             throw std::runtime_error("unsupported patch interval CIGAR operation");
         }
+        operations.push_back(operation);
         begin = end + 1;
     }
     attempt.identity =
@@ -351,6 +377,52 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
             ? 1.0
             : static_cast<double>(attempt.matches) /
                   static_cast<double>(attempt.block_length);
+
+    std::size_t rescue_index = operations.size();
+    for (std::size_t i = 0; i < operations.size(); ++i) {
+        const auto& operation = operations[i];
+        if ((operation.op == 'I' || operation.op == 'D') &&
+            operation.length >= kMinRescueIndelBp) {
+            ++attempt.rescue_long_indel_count;
+            rescue_index = i;
+        }
+    }
+    if (attempt.rescue_long_indel_count != 1) return attempt;
+
+    attempt.rescue_indel_op = operations[rescue_index].op;
+    attempt.rescue_indel_len = operations[rescue_index].length;
+    std::uint64_t left_matches = 0;
+    std::uint64_t right_matches = 0;
+    for (std::size_t i = 0; i < operations.size(); ++i) {
+        const auto& operation = operations[i];
+        if (i < rescue_index) {
+            attempt.rescue_left_bp += operation.aligned_bp;
+            left_matches += operation.matches;
+        } else if (i > rescue_index) {
+            attempt.rescue_right_bp += operation.aligned_bp;
+            right_matches += operation.matches;
+        }
+        if (i != rescue_index &&
+            (operation.op == 'I' || operation.op == 'D')) {
+            attempt.rescue_extra_indel_bp += operation.length;
+        }
+    }
+    attempt.rescue_left_identity =
+        attempt.rescue_left_bp == 0
+            ? 0.0
+            : static_cast<double>(left_matches) /
+                  static_cast<double>(attempt.rescue_left_bp);
+    attempt.rescue_right_identity =
+        attempt.rescue_right_bp == 0
+            ? 0.0
+            : static_cast<double>(right_matches) /
+                  static_cast<double>(attempt.rescue_right_bp);
+    attempt.long_indel_rescue =
+        attempt.rescue_left_bp >= kMinRescueFlankBp &&
+        attempt.rescue_right_bp >= kMinRescueFlankBp &&
+        attempt.rescue_left_identity >= kMinRescueFlankIdentity &&
+        attempt.rescue_right_identity >= kMinRescueFlankIdentity &&
+        attempt.rescue_extra_indel_bp <= kMaxRescueExtraIndelBp;
     return attempt;
 }
 
@@ -402,13 +474,16 @@ PatchAttempt align_patch_interval(faidx_t* index,
         attempt.cigar = aligner.getCIGAR(true);
         attempt.score = aligner.getAlignmentScore();
         attempt = summarize_patch_cigar(std::move(attempt), ref, query);
-        if (attempt.identity < 0.95) {
+        if (attempt.identity >= 0.95) {
+            attempt.classification = "patch_interval_wfa";
+            attempt.merge = true;
+        } else if (attempt.long_indel_rescue) {
+            attempt.classification = "patch_long_indel_rescue";
+            attempt.merge = true;
+        } else {
             attempt.classification = "patch_interval_low_identity";
             attempt.merge = false;
-            return attempt;
         }
-        attempt.classification = "patch_interval_wfa";
-        attempt.merge = true;
     } catch (const std::exception&) {
         attempt.classification = "patch_wfa_failed";
         attempt.merge = false;
@@ -435,17 +510,6 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
         query_gap > parameters.max_patch_gap_bp) {
         return attempt;
     }
-    const auto merged_ref_span = right.ref_end - left.ref_start;
-    const auto merged_query_span = interval_span(
-        std::min(left.query_start, right.query_start),
-        std::max(left.query_end, right.query_end));
-    if (merged_ref_span > parameters.max_bundle_align_bp ||
-        merged_query_span > parameters.max_bundle_align_bp) {
-        attempt.classification = "patch_span_too_long";
-        attempt.ref_gap = ref_gap;
-        attempt.query_gap = query_gap;
-        return attempt;
-    }
     if (overlaps_opposite_strand_bundle(
             left, right, bundles, parameters.anchor_length)) {
         attempt.classification = "opposite_strand_overlap";
@@ -466,6 +530,12 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
         << (attempt.ref_interval.end - attempt.ref_interval.start) << '\t'
         << (attempt.query_interval.end - attempt.query_interval.start) << '\t'
         << attempt.score << '\t' << attempt.identity << '\t'
+        << attempt.rescue_indel_op << '\t' << attempt.rescue_indel_len << '\t'
+        << attempt.rescue_left_bp << '\t' << attempt.rescue_right_bp << '\t'
+        << attempt.rescue_left_identity << '\t'
+        << attempt.rescue_right_identity << '\t'
+        << attempt.rescue_extra_indel_bp << '\t'
+        << attempt.rescue_long_indel_count << '\t'
         << (attempt.merge ? 1 : 0) << '\t' << attempt.cigar << '\t'
         << left.ref_start << '\t' << left.ref_end << '\t'
         << left.query_start << '\t' << left.query_end << '\t'
@@ -492,7 +562,11 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         << "\tstrand\tref_gap\tquery_gap\tref_interval_start"
         << "\tref_interval_end\tquery_interval_start\tquery_interval_end"
         << "\tref_interval_len\tquery_interval_len\twfa_score"
-        << "\tidentity\tmerge\tcigar"
+        << "\tidentity\trescue_op\trescue_indel_len"
+        << "\trescue_left_bp\trescue_right_bp"
+        << "\trescue_left_identity\trescue_right_identity"
+        << "\trescue_extra_indel_bp\trescue_long_indel_count"
+        << "\tmerge\tcigar"
         << "\tleft_ref_start\tleft_ref_end"
         << "\tleft_query_start\tleft_query_end\tright_ref_start"
         << "\tright_ref_end\tright_query_start\tright_query_end\n";
