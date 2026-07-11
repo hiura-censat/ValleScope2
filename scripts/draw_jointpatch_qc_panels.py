@@ -228,7 +228,11 @@ def ribbon_color(record):
 
 
 def draw_full_length(paf_records, svs, lengths, out_png, sample, width, height):
-    ref_name = "chr1_124500000-125500000"
+    target_names = [r["tname"] for r in paf_records if r["qname"] == sample]
+    if not target_names:
+        return False
+    ref_name = "reference" if "reference" in target_names else max(
+        set(target_names), key=target_names.count)
     records = [r for r in paf_records if r["tname"] == ref_name and r["qname"] == sample]
     if not records:
         return False

@@ -440,6 +440,15 @@ anchor-guided base-alignment step. Debug `patch_intervals.tsv` records the
 long-indel rescue operation, length, flank lengths, flank identities, and
 extra-indel total.
 
+Long-indel rescue candidates connected to a chain-extended bundle, or with a
+locally suspicious CIGAR, receive an additional segmented Z-drop check. The
+primary long insertion/deletion is excluded from this check: ValleScope2 runs
+WFA2 Z-drop outward from both sides of the primary event (`zdrop=20`, cutoff
+every score step). A partial or failed prefix/suffix alignment rejects the full
+bundle merge as `patch_zdrop_reject`. Debug `patch_intervals.tsv` records the
+local endpoint identities, maximum 500 bp short-error density, Z-drop statuses,
+and validation spans.
+
 After gap patching, the final bundle set is overlap-trimmed immediately before
 base alignment. Lower-scoring bundles are trimmed only when both the ref and
 query intervals overlap a higher-scoring bundle by at least

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
@@ -63,7 +64,20 @@ struct PatchAttempt {
     double rescue_right_identity = 0.0;
     std::uint64_t rescue_extra_indel_bp = 0;
     std::uint64_t rescue_long_indel_count = 0;
+    std::uint64_t rescue_ref_offset = 0;
+    std::uint64_t rescue_query_offset = 0;
     bool long_indel_rescue = false;
+    double left_endpoint_identity = 1.0;
+    double right_endpoint_identity = 1.0;
+    double max_short_error_density = 0.0;
+    bool low_quality_cigar = false;
+    bool zdrop_checked = false;
+    bool zdrop_fired = false;
+    int zdrop_status = 0;
+    int zdrop_prefix_status = 0;
+    int zdrop_suffix_status = 0;
+    std::uint64_t zdrop_ref_span = 0;
+    std::uint64_t zdrop_query_span = 0;
     std::int64_t score = 0;
     std::string cigar;
 };
@@ -73,12 +87,19 @@ struct PatchCigarOperation {
     char op = '.';
     std::uint64_t aligned_bp = 0;
     std::uint64_t matches = 0;
+    std::uint64_t ref_before = 0;
+    std::uint64_t query_before = 0;
 };
 
 constexpr std::uint64_t kMinRescueIndelBp = 500;
 constexpr std::uint64_t kMinRescueFlankBp = 200;
 constexpr double kMinRescueFlankIdentity = 0.95;
 constexpr std::uint64_t kMaxRescueExtraIndelBp = 100;
+constexpr std::uint64_t kPatchQualityWindowBp = 500;
+constexpr double kMinPatchEndpointIdentity = 0.85;
+constexpr double kMaxPatchShortErrorDensity = 0.15;
+constexpr int kPatchZDrop = 20;
+constexpr int kPatchZDropSteps = 1;
 
 std::uint64_t positive_gap(const std::uint64_t left_end,
                            const std::uint64_t right_start) {
@@ -346,7 +367,8 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
         const auto length = parse_u64(attempt.cigar.substr(begin, end - begin),
                                       "cigar_length");
         const char op = attempt.cigar[end];
-        PatchCigarOperation operation{length, op, 0, 0};
+        PatchCigarOperation operation{
+            length, op, 0, 0, ref_offset, query_offset};
         if (op == '=' || op == 'X' || op == 'M') {
             operation.aligned_bp = length;
             for (std::uint64_t i = 0; i < length; ++i) {
@@ -378,6 +400,63 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
             : static_cast<double>(attempt.matches) /
                   static_cast<double>(attempt.block_length);
 
+    auto segment_max_error_density = [](const std::vector<std::uint8_t>& errors) {
+        if (errors.empty()) return 0.0;
+        const auto window = std::min<std::size_t>(kPatchQualityWindowBp,
+                                                  errors.size());
+        std::uint64_t error_count = 0;
+        for (std::size_t i = 0; i < window; ++i) error_count += errors[i];
+        double maximum = static_cast<double>(error_count) /
+                         static_cast<double>(window);
+        for (std::size_t i = window; i < errors.size(); ++i) {
+            error_count += errors[i];
+            error_count -= errors[i - window];
+            maximum = std::max(maximum,
+                static_cast<double>(error_count) /
+                static_cast<double>(window));
+        }
+        return maximum;
+    };
+    std::vector<std::uint8_t> short_error_segment;
+    std::vector<std::uint8_t> left_endpoint;
+    std::vector<std::uint8_t> right_endpoint;
+    for (const auto& operation : operations) {
+        const bool long_indel =
+            (operation.op == 'I' || operation.op == 'D') &&
+            operation.length >= kMinRescueIndelBp;
+        if (long_indel) {
+            attempt.max_short_error_density = std::max(
+                attempt.max_short_error_density,
+                segment_max_error_density(short_error_segment));
+            short_error_segment.clear();
+            continue;
+        }
+        for (std::uint64_t i = 0; i < operation.length; ++i) {
+            const auto error = static_cast<std::uint8_t>(
+                operation.op == '=' ? 0 :
+                operation.op == 'M' && i < operation.matches ? 0 : 1);
+            short_error_segment.push_back(error);
+            if (left_endpoint.size() < kPatchQualityWindowBp) {
+                left_endpoint.push_back(error);
+            }
+            right_endpoint.push_back(error);
+            if (right_endpoint.size() > kPatchQualityWindowBp) {
+                right_endpoint.erase(right_endpoint.begin());
+            }
+        }
+    }
+    attempt.max_short_error_density = std::max(
+        attempt.max_short_error_density,
+        segment_max_error_density(short_error_segment));
+    auto endpoint_identity = [](const std::vector<std::uint8_t>& errors) {
+        if (errors.empty()) return 0.0;
+        const auto error_count = std::count(errors.begin(), errors.end(), 1U);
+        return 1.0 - static_cast<double>(error_count) /
+                         static_cast<double>(errors.size());
+    };
+    attempt.left_endpoint_identity = endpoint_identity(left_endpoint);
+    attempt.right_endpoint_identity = endpoint_identity(right_endpoint);
+
     std::size_t rescue_index = operations.size();
     for (std::size_t i = 0; i < operations.size(); ++i) {
         const auto& operation = operations[i];
@@ -391,6 +470,8 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
 
     attempt.rescue_indel_op = operations[rescue_index].op;
     attempt.rescue_indel_len = operations[rescue_index].length;
+    attempt.rescue_ref_offset = operations[rescue_index].ref_before;
+    attempt.rescue_query_offset = operations[rescue_index].query_before;
     std::uint64_t left_matches = 0;
     std::uint64_t right_matches = 0;
     for (std::size_t i = 0; i < operations.size(); ++i) {
@@ -423,7 +504,83 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
         attempt.rescue_left_identity >= kMinRescueFlankIdentity &&
         attempt.rescue_right_identity >= kMinRescueFlankIdentity &&
         attempt.rescue_extra_indel_bp <= kMaxRescueExtraIndelBp;
+    attempt.low_quality_cigar =
+        attempt.left_endpoint_identity < kMinPatchEndpointIdentity ||
+        attempt.right_endpoint_identity < kMinPatchEndpointIdentity ||
+        attempt.max_short_error_density > kMaxPatchShortErrorDensity;
     return attempt;
+}
+
+void validate_patch_with_zdrop(PatchAttempt& attempt,
+                               faidx_t* index,
+                               const ChainBundle& left,
+                               const ChainBundle& right,
+                               const BaseAlignmentParameters& parameters) {
+    const Interval ref_interval{left.ref_start, right.ref_end};
+    const Interval query_interval{
+        std::min(left.query_start, right.query_start),
+        std::max(left.query_end, right.query_end)};
+    attempt.zdrop_ref_span = interval_span(ref_interval.start, ref_interval.end);
+    attempt.zdrop_query_span = interval_span(query_interval.start, query_interval.end);
+    attempt.zdrop_checked = true;
+    if (attempt.zdrop_ref_span > parameters.max_bundle_align_bp ||
+        attempt.zdrop_query_span > parameters.max_bundle_align_bp) {
+        attempt.zdrop_status = wfa::WFAligner::StatusMaxStepsReached;
+        attempt.zdrop_fired = true;
+        return;
+    }
+
+    const auto ref = fetch_interval(index, left.sequence_a, ref_interval);
+    const auto query = fetch_patch_query(
+        index, left.sequence_b, query_interval, left.strand);
+    const auto max_memory =
+        static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) *
+        1024ULL * 1024ULL * 1024ULL;
+    const auto local_ref_base = attempt.ref_interval.start - ref_interval.start;
+    const auto local_query_base =
+        left.strand == '+'
+            ? attempt.query_interval.start - query_interval.start
+            : query_interval.end - attempt.query_interval.end;
+    const auto primary_ref = local_ref_base + attempt.rescue_ref_offset;
+    const auto primary_query = local_query_base + attempt.rescue_query_offset;
+    const auto suffix_ref = primary_ref +
+        (attempt.rescue_indel_op == 'D' ? attempt.rescue_indel_len : 0);
+    const auto suffix_query = primary_query +
+        (attempt.rescue_indel_op == 'I' ? attempt.rescue_indel_len : 0);
+    if (primary_ref > ref.size() || primary_query > query.size() ||
+        suffix_ref > ref.size() || suffix_query > query.size()) {
+        attempt.zdrop_status = wfa::WFAligner::StatusMaxStepsReached;
+        attempt.zdrop_fired = true;
+        return;
+    }
+
+    auto run_zdrop = [&](const std::string& segment_ref,
+                         const std::string& segment_query) {
+        if (segment_ref.empty() && segment_query.empty()) {
+            return static_cast<int>(wfa::WFAligner::StatusAlgCompleted);
+        }
+        wfa::WFAlignerGapAffine2Pieces aligner(
+            19, 39, 3, 81, 1,
+            wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
+        aligner.setMaxMemory(max_memory, max_memory);
+        aligner.setHeuristicZDrop(kPatchZDrop, kPatchZDropSteps);
+        return static_cast<int>(aligner.alignEnd2End(segment_ref, segment_query));
+    };
+
+    auto prefix_ref = ref.substr(0, primary_ref);
+    auto prefix_query = query.substr(0, primary_query);
+    std::reverse(prefix_ref.begin(), prefix_ref.end());
+    std::reverse(prefix_query.begin(), prefix_query.end());
+    attempt.zdrop_prefix_status = run_zdrop(prefix_ref, prefix_query);
+    attempt.zdrop_suffix_status = run_zdrop(
+        ref.substr(suffix_ref), query.substr(suffix_query));
+    attempt.zdrop_status =
+        attempt.zdrop_prefix_status != wfa::WFAligner::StatusAlgCompleted
+            ? attempt.zdrop_prefix_status
+            : attempt.zdrop_suffix_status;
+    attempt.zdrop_fired =
+        attempt.zdrop_prefix_status != wfa::WFAligner::StatusAlgCompleted ||
+        attempt.zdrop_suffix_status != wfa::WFAligner::StatusAlgCompleted;
 }
 
 PatchAttempt align_patch_interval(faidx_t* index,
@@ -478,8 +635,19 @@ PatchAttempt align_patch_interval(faidx_t* index,
             attempt.classification = "patch_interval_wfa";
             attempt.merge = true;
         } else if (attempt.long_indel_rescue) {
-            attempt.classification = "patch_long_indel_rescue";
-            attempt.merge = true;
+            const bool extended_bundle =
+                left.source == "extended" || right.source == "extended";
+            if (attempt.low_quality_cigar || extended_bundle) {
+                validate_patch_with_zdrop(
+                    attempt, index, left, right, parameters);
+            }
+            if (attempt.zdrop_fired) {
+                attempt.classification = "patch_zdrop_reject";
+                attempt.merge = false;
+            } else {
+                attempt.classification = "patch_long_indel_rescue";
+                attempt.merge = true;
+            }
         } else {
             attempt.classification = "patch_interval_low_identity";
             attempt.merge = false;
@@ -536,6 +704,19 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
         << attempt.rescue_right_identity << '\t'
         << attempt.rescue_extra_indel_bp << '\t'
         << attempt.rescue_long_indel_count << '\t'
+        << attempt.rescue_ref_offset << '\t'
+        << attempt.rescue_query_offset << '\t'
+        << attempt.left_endpoint_identity << '\t'
+        << attempt.right_endpoint_identity << '\t'
+        << attempt.max_short_error_density << '\t'
+        << (attempt.low_quality_cigar ? 1 : 0) << '\t'
+        << (attempt.zdrop_checked ? 1 : 0) << '\t'
+        << (attempt.zdrop_fired ? 1 : 0) << '\t'
+        << attempt.zdrop_status << '\t'
+        << attempt.zdrop_prefix_status << '\t'
+        << attempt.zdrop_suffix_status << '\t'
+        << attempt.zdrop_ref_span << '\t'
+        << attempt.zdrop_query_span << '\t'
         << (attempt.merge ? 1 : 0) << '\t' << attempt.cigar << '\t'
         << left.ref_start << '\t' << left.ref_end << '\t'
         << left.query_start << '\t' << left.query_end << '\t'
@@ -566,6 +747,12 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         << "\trescue_left_bp\trescue_right_bp"
         << "\trescue_left_identity\trescue_right_identity"
         << "\trescue_extra_indel_bp\trescue_long_indel_count"
+        << "\trescue_ref_offset\trescue_query_offset"
+        << "\tleft_endpoint_identity\tright_endpoint_identity"
+        << "\tmax_short_error_density\tlow_quality_cigar"
+        << "\tzdrop_checked\tzdrop_fired\tzdrop_status"
+        << "\tzdrop_prefix_status\tzdrop_suffix_status"
+        << "\tzdrop_ref_span\tzdrop_query_span"
         << "\tmerge\tcigar"
         << "\tleft_ref_start\tleft_ref_end"
         << "\tleft_query_start\tleft_query_end\tright_ref_start"
