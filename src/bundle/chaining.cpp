@@ -184,6 +184,10 @@ ChainingResult build_anchor_chains(
         pre_trim_chain_count > emitted_chains.size()
             ? pre_trim_chain_count - emitted_chains.size()
             : 0;
+    emitted_chains = filter_context_conflicting_chains(
+        std::move(emitted_chains),
+        chain_output.parent_path() / "chain_context.tsv",
+        result.context_filtered_chain_count);
     result.chain_count = emitted_chains.size();
     for (const auto& emitted : emitted_chains) {
         result.chain_anchor_count += emitted.anchors.size();

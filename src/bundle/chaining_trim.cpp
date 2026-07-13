@@ -3,8 +3,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <iterator>
+#include <limits>
+#include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace vallescope2 {
@@ -212,6 +216,161 @@ bool chain_passes_filters(const EmittedChain& chain,
            chain.score >= parameters.min_chain_score;
 }
 
+struct CoordinateInterval {
+    std::int64_t start = 0;
+    std::int64_t end = 0;
+};
+
+struct ContextConflict {
+    bool found = false;
+    std::uint64_t left_id = 0;
+    std::uint64_t right_id = 0;
+    std::string bracket_axis;
+    std::uint64_t violation = 0;
+    std::uint64_t left_gap = 0;
+    std::uint64_t right_gap = 0;
+    double normalized_violation = 0.0;
+    bool boundary_supported = false;
+};
+
+CoordinateInterval ref_interval(const EmittedChain& chain) {
+    return {static_cast<std::int64_t>(chain.ref_start),
+            static_cast<std::int64_t>(chain.ref_end)};
+}
+
+CoordinateInterval oriented_query_interval(const EmittedChain& chain) {
+    if (chain.strand == '+') {
+        return {static_cast<std::int64_t>(chain.query_start),
+                static_cast<std::int64_t>(chain.query_end)};
+    }
+    return {-static_cast<std::int64_t>(chain.query_end),
+            -static_cast<std::int64_t>(chain.query_start)};
+}
+
+bool chain_precedes(const EmittedChain& left, const EmittedChain& right) {
+    const auto left_query = oriented_query_interval(left);
+    const auto right_query = oriented_query_interval(right);
+    return left.ref_end <= right.ref_start &&
+           left_query.end <= right_query.start;
+}
+
+std::vector<bool> maximum_weight_skeleton(
+    const std::vector<EmittedChain>& chains,
+    const std::vector<std::size_t>& group) {
+    const auto weight = [](const EmittedChain& chain) {
+        const auto ref_span = span_length(chain.ref_start, chain.ref_end);
+        const auto query_span = span_length(chain.query_start, chain.query_end);
+        return std::max(0.0, chain.score) +
+               static_cast<double>(std::min(ref_span, query_span));
+    };
+    std::vector<std::size_t> ordered = group;
+    std::sort(ordered.begin(), ordered.end(), [&](const auto left, const auto right) {
+        if (chains[left].ref_start != chains[right].ref_start) {
+            return chains[left].ref_start < chains[right].ref_start;
+        }
+        return oriented_query_interval(chains[left]).start <
+               oriented_query_interval(chains[right]).start;
+    });
+
+    std::vector<double> score(ordered.size(), 0.0);
+    std::vector<int> predecessor(ordered.size(), -1);
+    std::size_t best = 0;
+    for (std::size_t index = 0; index < ordered.size(); ++index) {
+        score[index] = weight(chains[ordered[index]]);
+        for (std::size_t previous = 0; previous < index; ++previous) {
+            if (!chain_precedes(chains[ordered[previous]], chains[ordered[index]])) {
+                continue;
+            }
+            const double candidate = score[previous] +
+                                     weight(chains[ordered[index]]);
+            if (candidate > score[index]) {
+                score[index] = candidate;
+                predecessor[index] = static_cast<int>(previous);
+            }
+        }
+        if (score[index] > score[best]) best = index;
+    }
+
+    std::vector<bool> skeleton(chains.size(), false);
+    for (int index = static_cast<int>(best); index >= 0;
+         index = predecessor[static_cast<std::size_t>(index)]) {
+        skeleton[ordered[static_cast<std::size_t>(index)]] = true;
+    }
+    return skeleton;
+}
+
+ContextConflict bracket_conflict(
+    const std::vector<EmittedChain>& chains,
+    const std::vector<std::size_t>& group,
+    const std::vector<bool>& skeleton,
+    const std::size_t candidate_index,
+    const bool bracket_query) {
+    const auto& candidate = chains[candidate_index];
+    const auto candidate_ref = ref_interval(candidate);
+    const auto candidate_query = oriented_query_interval(candidate);
+    const auto candidate_axis = bracket_query ? candidate_query : candidate_ref;
+    const auto candidate_other = bracket_query ? candidate_ref : candidate_query;
+
+    std::size_t left_index = chains.size();
+    std::size_t right_index = chains.size();
+    std::int64_t left_end = std::numeric_limits<std::int64_t>::min();
+    std::int64_t right_start = std::numeric_limits<std::int64_t>::max();
+    for (const auto index : group) {
+        if (!skeleton[index]) continue;
+        const auto ref = ref_interval(chains[index]);
+        const auto query = oriented_query_interval(chains[index]);
+        const auto axis = bracket_query ? query : ref;
+        if (axis.end <= candidate_axis.start && axis.end > left_end) {
+            left_end = axis.end;
+            left_index = index;
+        }
+        if (axis.start >= candidate_axis.end && axis.start < right_start) {
+            right_start = axis.start;
+            right_index = index;
+        }
+    }
+    if (left_index == chains.size() || right_index == chains.size()) return {};
+
+    const auto left_ref = ref_interval(chains[left_index]);
+    const auto left_query = oriented_query_interval(chains[left_index]);
+    const auto right_ref = ref_interval(chains[right_index]);
+    const auto right_query = oriented_query_interval(chains[right_index]);
+    const auto left_other = bracket_query ? left_ref : left_query;
+    const auto right_other = bracket_query ? right_ref : right_query;
+    if (left_other.end > right_other.start) return {};
+
+    const auto violation = std::max<std::int64_t>(
+        0, std::max(left_other.end - candidate_other.start,
+                    candidate_other.end - right_other.start));
+    if (violation == 0) return {};
+
+    const auto span = std::max<std::int64_t>(
+        1, std::max(candidate_ref.end - candidate_ref.start,
+                    candidate_query.end - candidate_query.start));
+    const auto left_gap = candidate_axis.start - left_end;
+    const auto right_gap = right_start - candidate_axis.end;
+    const auto boundary_slack = std::max<std::int64_t>(500, span / 10);
+    ContextConflict result;
+    result.found = true;
+    result.left_id = chains[left_index].id;
+    result.right_id = chains[right_index].id;
+    result.bracket_axis = bracket_query ? "query" : "ref";
+    result.violation = static_cast<std::uint64_t>(violation);
+    result.left_gap = static_cast<std::uint64_t>(left_gap);
+    result.right_gap = static_cast<std::uint64_t>(right_gap);
+    result.normalized_violation =
+        static_cast<double>(violation) / static_cast<double>(span);
+    result.boundary_supported =
+        left_gap <= boundary_slack && right_gap <= boundary_slack;
+    return result;
+}
+
+std::string context_group_key(const EmittedChain& chain) {
+    return chain.sample_a + '\x1f' + chain.sample_b + '\x1f' +
+           chain.sequence_a + '\x1f' + chain.sequence_b + '\x1f' +
+           chain.strand;
+}
+
 }  // namespace
 
 std::vector<EmittedChain> trim_overlapping_chains(
@@ -275,6 +434,75 @@ std::vector<EmittedChain> trim_overlapping_chains(
         accepted[index].id = index;
     }
     return accepted;
+}
+
+std::vector<EmittedChain> filter_context_conflicting_chains(
+    std::vector<EmittedChain> chains,
+    const std::filesystem::path& context_output,
+    std::uint64_t& filtered_count) {
+    constexpr double min_normalized_violation = 0.5;
+    filtered_count = 0;
+    std::ofstream output(context_output);
+    if (!output) throw std::runtime_error("cannot create chain context output");
+    output << "chain_id\tclassification\tleft_chain_id\tright_chain_id"
+              "\tbracket_axis\tviolation_bp\tnormalized_violation"
+              "\tleft_boundary_gap\tright_boundary_gap"
+              "\tboundary_supported\n";
+
+    std::unordered_map<std::string, std::vector<std::size_t>> groups;
+    for (std::size_t index = 0; index < chains.size(); ++index) {
+        groups[context_group_key(chains[index])].push_back(index);
+    }
+
+    std::vector<bool> keep(chains.size(), true);
+    for (const auto& item : groups) {
+        const auto skeleton = maximum_weight_skeleton(chains, item.second);
+        for (const auto index : item.second) {
+            if (skeleton[index]) {
+                output << chains[index].id << "\tsyntenic_skeleton\t.\t.\t."
+                          "\t0\t0\t0\t0\tfalse\n";
+                continue;
+            }
+            auto conflict = bracket_conflict(
+                chains, item.second, skeleton, index, true);
+            const auto ref_conflict = bracket_conflict(
+                chains, item.second, skeleton, index, false);
+            if (!conflict.found ||
+                (ref_conflict.found &&
+                 ref_conflict.normalized_violation >
+                     conflict.normalized_violation)) {
+                conflict = ref_conflict;
+            }
+
+            std::string classification = "off_skeleton_retained";
+            if (conflict.found && conflict.boundary_supported) {
+                classification = "off_skeleton_structural_candidate";
+            } else if (conflict.found &&
+                       conflict.normalized_violation >=
+                           min_normalized_violation) {
+                classification = "orphan_gap_cross_copy_rejected";
+                keep[index] = false;
+                ++filtered_count;
+            }
+            output << chains[index].id << '\t' << classification << '\t';
+            if (!conflict.found) {
+                output << ".\t.\t.\t0\t0\t0\t0\tfalse\n";
+            } else {
+                output << conflict.left_id << '\t' << conflict.right_id << '\t'
+                       << conflict.bracket_axis << '\t' << conflict.violation << '\t'
+                       << conflict.normalized_violation << '\t'
+                       << conflict.left_gap << '\t' << conflict.right_gap << '\t'
+                       << (conflict.boundary_supported ? "true" : "false") << '\n';
+            }
+        }
+    }
+
+    std::vector<EmittedChain> retained;
+    retained.reserve(chains.size() - filtered_count);
+    for (std::size_t index = 0; index < chains.size(); ++index) {
+        if (keep[index]) retained.push_back(std::move(chains[index]));
+    }
+    return retained;
 }
 
 }  // namespace chaining_detail

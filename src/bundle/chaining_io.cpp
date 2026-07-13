@@ -356,6 +356,8 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"candidate_count\": " << result.candidate_count << ",\n"
            << "  \"raw_chain_count\": " << result.raw_chain_count << ",\n"
            << "  \"trimmed_chain_count\": " << result.trimmed_chain_count << ",\n"
+           << "  \"context_filtered_chain_count\": "
+           << result.context_filtered_chain_count << ",\n"
            << "  \"chain_count\": " << result.chain_count << ",\n"
            << "  \"chain_anchor_count\": " << result.chain_anchor_count << ",\n"
            << "  \"refined_chain_count\": " << result.refined_chain_count << ",\n"

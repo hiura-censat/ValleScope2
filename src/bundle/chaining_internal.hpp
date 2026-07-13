@@ -85,6 +85,11 @@ std::vector<EmittedChain> trim_overlapping_chains(
     std::vector<EmittedChain> chains,
     const ChainingParameters& parameters);
 
+std::vector<EmittedChain> filter_context_conflicting_chains(
+    std::vector<EmittedChain> chains,
+    const std::filesystem::path& context_output,
+    std::uint64_t& filtered_count);
+
 void write_chain(std::ostream& chains,
                  std::ostream& chain_anchors,
                  const EmittedChain& chain);

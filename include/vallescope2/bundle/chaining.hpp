@@ -31,6 +31,7 @@ struct ChainingResult {
     std::uint64_t candidate_count = 0;
     std::uint64_t raw_chain_count = 0;
     std::uint64_t trimmed_chain_count = 0;
+    std::uint64_t context_filtered_chain_count = 0;
     std::uint64_t chain_count = 0;
     std::uint64_t chain_anchor_count = 0;
     std::uint64_t refined_chain_count = 0;

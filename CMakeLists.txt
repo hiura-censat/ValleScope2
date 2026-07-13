@@ -120,4 +120,15 @@ if(BUILD_TESTING)
     target_compile_features(edit_distance_test PRIVATE cxx_std_17)
     target_compile_options(edit_distance_test PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME edit-distance COMMAND edit_distance_test)
+
+    add_executable(chaining_context_test
+        test/chaining_context_test.cpp
+        src/bundle/chaining_trim.cpp
+    )
+    target_include_directories(chaining_context_test PRIVATE
+        include src/bundle
+    )
+    target_compile_features(chaining_context_test PRIVATE cxx_std_17)
+    target_compile_options(chaining_context_test PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME chaining-context COMMAND chaining_context_test)
 endif()

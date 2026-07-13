@@ -400,6 +400,15 @@ on the other, they are treated as competing repeat-copy mappings and only the
 higher adjusted-score chain is retained. This comparison is sample-symmetric
 and does not use a designated reference sequence.
 
+After overlap trimming, ValleScope2 selects a maximum-weight monotonic chain
+skeleton for each sequence pair and strand, using adjusted chain score plus
+aligned span as its weight. An off-skeleton chain is omitted when its order
+violation exceeds half its span and it does not reach both
+boundaries of the skeleton gap (within 500 bp or 10% of its span). Boundary-
+supported candidates are retained for possible duplication or rearrangement
+support. `chain_context.tsv` records every classification. This check is
+sample-symmetric and does not use reference projection.
+
 Outputs:
 
 ```text
