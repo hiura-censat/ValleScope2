@@ -233,6 +233,26 @@ struct ContextConflict {
     bool boundary_supported = false;
 };
 
+struct ExcursionConflict {
+    bool found = false;
+    std::size_t candidate_index = 0;
+    std::uint64_t left_id = 0;
+    std::uint64_t right_id = 0;
+    std::uint64_t left_jump = 0;
+    std::uint64_t right_jump = 0;
+    std::uint64_t net_shift = 0;
+    std::uint64_t excursion = 0;
+    double normalized_excursion = 0.0;
+    double return_ratio = 0.0;
+    double local_gain = 0.0;
+};
+
+constexpr std::uint64_t kMinExcursionBp = 2000;
+constexpr double kMinNormalizedExcursion = 0.5;
+constexpr double kMaxExcursionReturnRatio = 0.25;
+constexpr double kSkeletonGapScale = 1000.0;
+constexpr double kSkeletonGapLambda = 1600.0;
+
 CoordinateInterval ref_interval(const EmittedChain& chain) {
     return {static_cast<std::int64_t>(chain.ref_start),
             static_cast<std::int64_t>(chain.ref_end)};
@@ -254,16 +274,54 @@ bool chain_precedes(const EmittedChain& left, const EmittedChain& right) {
            left_query.end <= right_query.start;
 }
 
+double skeleton_weight(const EmittedChain& chain) {
+    const auto ref_span = span_length(chain.ref_start, chain.ref_end);
+    const auto query_span = span_length(chain.query_start, chain.query_end);
+    return std::max(0.0, chain.score) +
+           static_cast<double>(std::min(ref_span, query_span));
+}
+
+std::int64_t chain_diagonal(const EmittedChain& chain) {
+    const auto query = oriented_query_interval(chain);
+    const auto ref_mid = static_cast<std::int64_t>(chain.ref_start) +
+                         static_cast<std::int64_t>(
+                             (chain.ref_end - chain.ref_start) / 2);
+    const auto query_mid = query.start + (query.end - query.start) / 2;
+    return query_mid - ref_mid;
+}
+
+std::uint64_t absolute_difference(const std::int64_t left,
+                                  const std::int64_t right) {
+    return left >= right ? static_cast<std::uint64_t>(left - right)
+                         : static_cast<std::uint64_t>(right - left);
+}
+
+std::uint64_t transition_gap_difference(const EmittedChain& left,
+                                        const EmittedChain& right) {
+    const auto left_query = oriented_query_interval(left);
+    const auto right_query = oriented_query_interval(right);
+    const auto ref_gap = static_cast<std::int64_t>(right.ref_start) -
+                         static_cast<std::int64_t>(left.ref_end);
+    const auto query_gap = right_query.start - left_query.end;
+    return absolute_difference(ref_gap, query_gap);
+}
+
+double skeleton_transition_penalty(const EmittedChain& left,
+                                   const EmittedChain& right) {
+    const auto difference = transition_gap_difference(left, right);
+    return kSkeletonGapLambda *
+           std::log1p(static_cast<double>(difference) / kSkeletonGapScale);
+}
+
 std::vector<bool> maximum_weight_skeleton(
     const std::vector<EmittedChain>& chains,
-    const std::vector<std::size_t>& group) {
-    const auto weight = [](const EmittedChain& chain) {
-        const auto ref_span = span_length(chain.ref_start, chain.ref_end);
-        const auto query_span = span_length(chain.query_start, chain.query_end);
-        return std::max(0.0, chain.score) +
-               static_cast<double>(std::min(ref_span, query_span));
-    };
-    std::vector<std::size_t> ordered = group;
+    const std::vector<std::size_t>& group,
+    const std::vector<bool>& excluded) {
+    std::vector<std::size_t> ordered;
+    ordered.reserve(group.size());
+    for (const auto index : group) {
+        if (!excluded[index]) ordered.push_back(index);
+    }
     std::sort(ordered.begin(), ordered.end(), [&](const auto left, const auto right) {
         if (chains[left].ref_start != chains[right].ref_start) {
             return chains[left].ref_start < chains[right].ref_start;
@@ -274,15 +332,17 @@ std::vector<bool> maximum_weight_skeleton(
 
     std::vector<double> score(ordered.size(), 0.0);
     std::vector<int> predecessor(ordered.size(), -1);
+    std::vector<bool> skeleton(chains.size(), false);
+    if (ordered.empty()) return skeleton;
     std::size_t best = 0;
     for (std::size_t index = 0; index < ordered.size(); ++index) {
-        score[index] = weight(chains[ordered[index]]);
+        score[index] = skeleton_weight(chains[ordered[index]]);
         for (std::size_t previous = 0; previous < index; ++previous) {
             if (!chain_precedes(chains[ordered[previous]], chains[ordered[index]])) {
                 continue;
             }
             const double candidate = score[previous] +
-                                     weight(chains[ordered[index]]);
+                                     skeleton_weight(chains[ordered[index]]);
             if (candidate > score[index]) {
                 score[index] = candidate;
                 predecessor[index] = static_cast<int>(previous);
@@ -291,12 +351,83 @@ std::vector<bool> maximum_weight_skeleton(
         if (score[index] > score[best]) best = index;
     }
 
-    std::vector<bool> skeleton(chains.size(), false);
     for (int index = static_cast<int>(best); index >= 0;
          index = predecessor[static_cast<std::size_t>(index)]) {
         skeleton[ordered[static_cast<std::size_t>(index)]] = true;
     }
     return skeleton;
+}
+
+ExcursionConflict find_excursion_conflict(
+    const std::vector<EmittedChain>& chains,
+    const std::vector<std::size_t>& group,
+    const std::vector<bool>& skeleton) {
+    std::vector<std::size_t> path;
+    for (const auto index : group) {
+        if (skeleton[index]) path.push_back(index);
+    }
+    std::sort(path.begin(), path.end(), [&](const auto left, const auto right) {
+        if (chains[left].ref_start != chains[right].ref_start) {
+            return chains[left].ref_start < chains[right].ref_start;
+        }
+        return oriented_query_interval(chains[left]).start <
+               oriented_query_interval(chains[right]).start;
+    });
+
+    ExcursionConflict best;
+    for (std::size_t index = 1; index + 1 < path.size(); ++index) {
+        const auto left_index = path[index - 1];
+        const auto candidate_index = path[index];
+        const auto right_index = path[index + 1];
+        const auto left_diagonal = chain_diagonal(chains[left_index]);
+        const auto candidate_diagonal = chain_diagonal(chains[candidate_index]);
+        const auto right_diagonal = chain_diagonal(chains[right_index]);
+        const auto left_delta = candidate_diagonal - left_diagonal;
+        const auto right_delta = right_diagonal - candidate_diagonal;
+        if (!((left_delta < 0 && right_delta > 0) ||
+              (left_delta > 0 && right_delta < 0))) {
+            continue;
+        }
+
+        const auto left_jump = absolute_difference(
+            candidate_diagonal, left_diagonal);
+        const auto right_jump = absolute_difference(
+            right_diagonal, candidate_diagonal);
+        const auto net_shift = absolute_difference(right_diagonal, left_diagonal);
+        const auto smaller_jump = std::min(left_jump, right_jump);
+        if (smaller_jump <= net_shift) continue;
+        const auto excursion = smaller_jump - net_shift;
+        const auto candidate_span = std::max<std::uint64_t>(
+            1, std::min(span_length(chains[candidate_index].ref_start,
+                                    chains[candidate_index].ref_end),
+                        span_length(chains[candidate_index].query_start,
+                                    chains[candidate_index].query_end)));
+        const auto normalized_excursion =
+            static_cast<double>(excursion) /
+            static_cast<double>(candidate_span);
+        const auto return_ratio = static_cast<double>(net_shift) /
+                                  static_cast<double>(smaller_jump);
+        if (excursion < kMinExcursionBp ||
+            normalized_excursion < kMinNormalizedExcursion ||
+            return_ratio > kMaxExcursionReturnRatio) {
+            continue;
+        }
+
+        const auto local_gain = skeleton_weight(chains[candidate_index]) -
+            skeleton_transition_penalty(chains[left_index],
+                                        chains[candidate_index]) -
+            skeleton_transition_penalty(chains[candidate_index],
+                                        chains[right_index]) +
+            skeleton_transition_penalty(chains[left_index],
+                                        chains[right_index]);
+        if (local_gain >= 0.0 || (best.found && local_gain >= best.local_gain)) {
+            continue;
+        }
+        best = {true, candidate_index, chains[left_index].id,
+                chains[right_index].id, left_jump, right_jump, net_shift,
+                excursion, normalized_excursion, return_ratio, local_gain};
+    }
+    return best;
 }
 
 ContextConflict bracket_conflict(
@@ -447,7 +578,9 @@ std::vector<EmittedChain> filter_context_conflicting_chains(
     output << "chain_id\tclassification\tleft_chain_id\tright_chain_id"
               "\tbracket_axis\tviolation_bp\tnormalized_violation"
               "\tleft_boundary_gap\tright_boundary_gap"
-              "\tboundary_supported\n";
+              "\tboundary_supported\tleft_jump_bp\tright_jump_bp"
+              "\tnet_shift_bp\texcursion_bp\tnormalized_excursion"
+              "\treturn_ratio\tlocal_gain\n";
 
     std::unordered_map<std::string, std::vector<std::size_t>> groups;
     for (std::size_t index = 0; index < chains.size(); ++index) {
@@ -456,11 +589,39 @@ std::vector<EmittedChain> filter_context_conflicting_chains(
 
     std::vector<bool> keep(chains.size(), true);
     for (const auto& item : groups) {
-        const auto skeleton = maximum_weight_skeleton(chains, item.second);
+        std::vector<bool> excursion_excluded(chains.size(), false);
+        std::vector<ExcursionConflict> excursion_conflicts(chains.size());
+        while (true) {
+            const auto provisional_skeleton = maximum_weight_skeleton(
+                chains, item.second, excursion_excluded);
+            const auto excursion = find_excursion_conflict(
+                chains, item.second, provisional_skeleton);
+            if (!excursion.found) break;
+            excursion_excluded[excursion.candidate_index] = true;
+            excursion_conflicts[excursion.candidate_index] = excursion;
+        }
+        const auto skeleton = maximum_weight_skeleton(
+            chains, item.second, excursion_excluded);
         for (const auto index : item.second) {
+            if (excursion_excluded[index]) {
+                const auto& excursion = excursion_conflicts[index];
+                output << chains[index].id << "\toff_skeleton_excursion\t"
+                       << excursion.left_id << '\t' << excursion.right_id
+                       << "\tdiagonal\t0\t0\t0\t0\tfalse\t"
+                       << excursion.left_jump << '\t'
+                       << excursion.right_jump << '\t'
+                       << excursion.net_shift << '\t'
+                       << excursion.excursion << '\t'
+                       << excursion.normalized_excursion << '\t'
+                       << excursion.return_ratio << '\t'
+                       << excursion.local_gain << '\n';
+                keep[index] = false;
+                ++filtered_count;
+                continue;
+            }
             if (skeleton[index]) {
                 output << chains[index].id << "\tsyntenic_skeleton\t.\t.\t."
-                          "\t0\t0\t0\t0\tfalse\n";
+                          "\t0\t0\t0\t0\tfalse\t0\t0\t0\t0\t0\t0\t0\n";
                 continue;
             }
             auto conflict = bracket_conflict(
@@ -486,13 +647,15 @@ std::vector<EmittedChain> filter_context_conflicting_chains(
             }
             output << chains[index].id << '\t' << classification << '\t';
             if (!conflict.found) {
-                output << ".\t.\t.\t0\t0\t0\t0\tfalse\n";
+                output << ".\t.\t.\t0\t0\t0\t0\tfalse"
+                          "\t0\t0\t0\t0\t0\t0\t0\n";
             } else {
                 output << conflict.left_id << '\t' << conflict.right_id << '\t'
                        << conflict.bracket_axis << '\t' << conflict.violation << '\t'
                        << conflict.normalized_violation << '\t'
                        << conflict.left_gap << '\t' << conflict.right_gap << '\t'
-                       << (conflict.boundary_supported ? "true" : "false") << '\n';
+                       << (conflict.boundary_supported ? "true" : "false")
+                       << "\t0\t0\t0\t0\t0\t0\t0\n";
             }
         }
     }

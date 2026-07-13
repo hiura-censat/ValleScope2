@@ -2,6 +2,8 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -35,6 +37,12 @@ void require(const bool condition, const std::string& message) {
     if (!condition) throw std::runtime_error(message);
 }
 
+std::string read_text(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    return {std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>()};
+}
+
 }  // namespace
 
 int main() {
@@ -60,6 +68,28 @@ int main() {
                 directory / "rescued.tsv", filtered);
         require(filtered == 0 && rescued.size() == 3,
                 "boundary-supported structural candidate was rejected");
+
+        const auto excursion_path = directory / "excursion.tsv";
+        auto excursion_filtered = vallescope2::chaining_detail::
+            filter_context_conflicting_chains(
+                {make_chain(20, 0, 100, 34000, 34100, 100.0),
+                 make_chain(21, 14000, 15000, 35400, 36400, 100.0),
+                 make_chain(22, 24000, 25000, 56000, 57000, 100.0)},
+                excursion_path, filtered);
+        require(filtered == 1 && excursion_filtered.size() == 2,
+                "short diagonal excursion was not removed from the skeleton");
+        require(read_text(excursion_path).find("off_skeleton_excursion") !=
+                    std::string::npos,
+                "diagonal excursion was not recorded");
+
+        auto deletion_retained = vallescope2::chaining_detail::
+            filter_context_conflicting_chains(
+                {make_chain(30, 0, 100, 0, 100, 100.0),
+                 make_chain(31, 9000, 10000, 1000, 2000, 100.0),
+                 make_chain(32, 11000, 12000, 3000, 4000, 100.0)},
+                directory / "deletion.tsv", filtered);
+        require(filtered == 0 && deletion_retained.size() == 3,
+                "persistent one-way deletion shift was rejected");
 
         std::filesystem::remove_all(directory);
         return 0;

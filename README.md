@@ -402,12 +402,23 @@ and does not use a designated reference sequence.
 
 After overlap trimming, ValleScope2 selects a maximum-weight monotonic chain
 skeleton for each sequence pair and strand, using adjusted chain score plus
-aligned span as its weight. An off-skeleton chain is omitted when its order
+aligned span as its weight. The provisional skeleton is then scanned in
+three-chain windows. A short middle chain is moved off the syntenic skeleton
+when both adjacent diagonal changes are large and opposite, the diagonal
+returns close to its original value, and a concave gap penalty makes the
+through-middle path score lower than the skip-middle path score. The scan and
+skeleton selection repeat until no negative-gain excursion remains. This
+distinguishes a local cross-copy excursion (`d0 -> d1 -> d0`) from a persistent
+one-way indel shift (`d0 -> d1 -> d1`) without reference projection.
+
+An off-skeleton chain is omitted when its order
 violation exceeds half its span and it does not reach both
 boundaries of the skeleton gap (within 500 bp or 10% of its span). Boundary-
 supported candidates are retained for possible duplication or rearrangement
-support. `chain_context.tsv` records every classification. This check is
-sample-symmetric and does not use reference projection.
+support. `chain_context.tsv` records every classification, including
+`off_skeleton_excursion`, the two diagonal jumps, net shift, normalized
+excursion, return ratio, and local through/skip gain. These checks are
+sample-symmetric and do not use reference projection.
 
 Outputs:
 
