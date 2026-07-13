@@ -59,7 +59,8 @@ bool emit_refined_subset(
         chain_score < parameters.min_chain_score) {
         return false;
     }
-    auto emitted = make_emitted_chain(next_chain_id++, subset, chain, chain_score);
+    auto emitted = make_emitted_chain(
+        next_chain_id++, subset, chain, chain_score, parameters);
     if (emitted.both_anchor_count < parameters.min_chain_both_anchors) {
         return false;
     }
@@ -88,7 +89,7 @@ std::vector<EmittedChain> refine_chains(
     chains << "chain_id\trefinement_type\tparent_chain_id\tleft_chain_id"
               "\tright_chain_id\tsample_a\tsample_b\tsequence_a\tsequence_b"
               "\tassign_strand\tn_candidates\tboth_anchor_count\tboth_rate"
-              "\tchain_score"
+              "\traw_chain_score\tchain_score"
               "\tref_start\tref_end\tquery_start\tquery_end\n";
     chain_anchors << "chain_id\trank\trefinement_type\tsample_a\tsample_b"
                      "\tanchor_a\tanchor_b\tref_center\tquery_center"

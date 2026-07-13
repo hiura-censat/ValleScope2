@@ -286,7 +286,7 @@ void write_chain(std::ostream& chains,
            << chain.sequence_b << '\t' << chain.strand << '\t'
            << chain.anchors.size() << '\t' << chain.both_anchor_count << '\t'
            << emitted_both_rate(chain) << '\t'
-           << chain.score << '\t'
+           << chain.raw_score << '\t' << chain.score << '\t'
            << chain.ref_start << '\t' << chain.ref_end << '\t'
            << chain.query_start << '\t' << chain.query_end << '\n';
     std::uint64_t rank = 0;
@@ -314,7 +314,7 @@ void write_refined_chain(std::ostream& chains,
            << chain.sequence_b << '\t' << chain.strand << '\t'
            << chain.anchors.size() << '\t' << chain.both_anchor_count << '\t'
            << emitted_both_rate(chain) << '\t'
-           << chain.score << '\t'
+           << chain.raw_score << '\t' << chain.score << '\t'
            << chain.ref_start << '\t' << chain.ref_end << '\t'
            << chain.query_start << '\t' << chain.query_end << '\n';
     std::uint64_t rank = 0;
@@ -347,6 +347,9 @@ void write_metadata(const std::filesystem::path& path,
            << parameters.min_chain_both_anchors << ",\n"
            << "  \"min_chain_score\": " << parameters.min_chain_score << ",\n"
            << "  \"chain_trim_overlap\": " << parameters.chain_trim_overlap << ",\n"
+           << "  \"reciprocal_score_weight\": "
+           << parameters.reciprocal_score_weight << ",\n"
+           << "  \"multimap_overlap\": " << parameters.multimap_overlap << ",\n"
            << "  \"refinement_window\": " << parameters.refinement_window << ",\n"
            << "  \"refinement_min_chain_anchors\": "
            << parameters.refinement_min_chain_anchors << ",\n"

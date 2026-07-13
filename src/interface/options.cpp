@@ -39,6 +39,8 @@ void print_usage(std::ostream& output) {
            << "  --min-chain-both-anchors INT  Minimum both-supported anchors per emitted chain [1]\n"
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
            << "  --chain-trim-overlap FLOAT  Ref/query overlap for trimming lower-score chains/bundles [0.01]\n"
+           << "  --chain-reciprocal-weight FLOAT  Both-rate weight in adjusted chain score [0.8]\n"
+           << "  --chain-multimap-overlap FLOAT  One-axis overlap for competing-chain suppression [0.5]\n"
            << "  --refinement-window INT  Refinement interval extension in bp [50000]\n"
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
            << "  --base-align  Write base-level bundle PAF to stdout with cg:Z [default]\n"
@@ -196,6 +198,12 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--chain-trim-overlap")
             options.chaining.chain_trim_overlap =
                 parse_double(argc, argv, index, argument);
+        else if (argument == "--chain-reciprocal-weight")
+            options.chaining.reciprocal_score_weight =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--chain-multimap-overlap")
+            options.chaining.multimap_overlap =
+                parse_double(argc, argv, index, argument);
         else if (argument == "--refinement-window")
             options.chaining.refinement_window =
                 parse_unsigned(argc, argv, index, argument);
@@ -266,6 +274,14 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
     if (options.chaining.chain_trim_overlap < 0.0 ||
         options.chaining.chain_trim_overlap > 1.0)
         throw std::runtime_error("chain trim overlap must be between 0 and 1");
+    if (options.chaining.reciprocal_score_weight < 0.0 ||
+        options.chaining.reciprocal_score_weight > 1.0)
+        throw std::runtime_error(
+            "chain reciprocal weight must be between 0 and 1");
+    if (options.chaining.multimap_overlap < 0.0 ||
+        options.chaining.multimap_overlap > 1.0)
+        throw std::runtime_error(
+            "chain multimap overlap must be between 0 and 1");
     if (options.chaining.refinement_min_chain_anchors == 0)
         throw std::runtime_error("minimum refinement chain anchor count must be greater than zero");
     if (options.max_bundle_align_bp == 0)

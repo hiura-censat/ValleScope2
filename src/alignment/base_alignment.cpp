@@ -5,6 +5,7 @@
 #include <htslib/faidx.h>
 
 #include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -80,6 +81,71 @@ alignment_detail::Interval query_oriented_interval(const PafRecord& record) {
 bool has_valid_intervals(const PafRecord& record) {
     return record.target_interval.start < record.target_interval.end &&
            record.query_interval.start < record.query_interval.end;
+}
+
+std::optional<PafRecord> recover_terminal_exact_flank(
+    const PafRecord& rejected,
+    const std::uint64_t minimum_flank_bp) {
+    const auto& cigar = rejected.alignment.cigar;
+    std::uint64_t ref_offset = 0;
+    std::uint64_t query_offset = 0;
+    std::uint64_t suffix_ref_offset = 0;
+    std::uint64_t suffix_query_offset = 0;
+    std::uint64_t suffix_length = 0;
+    char suffix_op = '.';
+
+    std::size_t begin = 0;
+    while (begin < cigar.size()) {
+        std::size_t end = begin;
+        while (end < cigar.size() &&
+               std::isdigit(static_cast<unsigned char>(cigar[end]))) {
+            ++end;
+        }
+        if (end == begin || end >= cigar.size()) return std::nullopt;
+        const auto length = alignment_detail::parse_u64(
+            cigar.substr(begin, end - begin), "cigar_length");
+        suffix_ref_offset = ref_offset;
+        suffix_query_offset = query_offset;
+        suffix_length = length;
+        suffix_op = cigar[end];
+        if (suffix_op == '=' || suffix_op == 'X' || suffix_op == 'M') {
+            ref_offset += length;
+            query_offset += length;
+        } else if (suffix_op == 'I') {
+            query_offset += length;
+        } else if (suffix_op == 'D') {
+            ref_offset += length;
+        } else {
+            return std::nullopt;
+        }
+        begin = end + 1;
+    }
+    if (suffix_op != '=' || suffix_length < minimum_flank_bp) {
+        return std::nullopt;
+    }
+
+    const auto full_oriented_query = query_oriented_interval(rejected);
+    const alignment_detail::Interval oriented_query{
+        full_oriented_query.start + suffix_query_offset,
+        full_oriented_query.start + suffix_query_offset + suffix_length};
+    auto recovered = rejected;
+    recovered.target_interval = {
+        rejected.target_interval.start + suffix_ref_offset,
+        rejected.target_interval.start + suffix_ref_offset + suffix_length};
+    recovered.query_interval =
+        rejected.strand == '+'
+            ? oriented_query
+            : alignment_detail::oriented_to_original_query_interval(
+                  oriented_query, rejected.query_length, rejected.strand);
+    recovered.alignment = {
+        std::to_string(suffix_length) + "=", suffix_length, suffix_length,
+        static_cast<std::int64_t>(suffix_length)};
+    recovered.bundle_source = "inversion_boundary_flank";
+    recovered.alignment_mode = "terminal_exact_recovery";
+    recovered.needs_realign = false;
+    return has_valid_intervals(recovered)
+        ? std::optional<PafRecord>(std::move(recovered))
+        : std::nullopt;
 }
 
 void realign_paf_record(PafRecord& record,
@@ -282,7 +348,8 @@ BaseAlignmentResult align_chain_bundles(
 
     const auto pre_patch_bundle_count = bundles.size();
     bundles = patch_adjacent_bundles(
-        std::move(bundles), index.get(), extension_candidates, parameters,
+        std::move(bundles), index.get(), extension_candidates, anchor_store,
+        parameters,
         metadata_output.parent_path() / "patch_intervals.tsv",
         result.patch_count);
     result.post_patch_bundle_count = bundles.size();
@@ -404,6 +471,51 @@ BaseAlignmentResult align_chain_bundles(
                 << bundle.query_start << '\t' << bundle.query_end << '\n';
             ++result.segment_alignment_failed_count;
             ++result.skipped_bundle_count;
+            continue;
+        }
+
+        if (bundle.source == "extended" && alignment.score <= 0) {
+            const PafRecord rejected{
+                bundle.sequence_b,
+                query_length,
+                query_interval,
+                strand_summary.effective_strand,
+                bundle.sequence_a,
+                ref_length,
+                ref_interval,
+                alignment,
+                bundle.chain_id,
+                bundle.source,
+                bundle.patch_count,
+                bundle.trim_count,
+                alignment_mode,
+                bundle.strand,
+                strand_summary.forward_count,
+                strand_summary.reverse_count,
+                strand_summary.incompatible_count,
+                bundle.sample_a,
+                bundle.sample_b};
+            const auto boundary_flank = recover_terminal_exact_flank(
+                rejected, 200);
+            skipped_bundles
+                << (boundary_flank
+                        ? "extended_nonpositive_score_boundary_recovered"
+                        : "extended_nonpositive_score")
+                << '\t' << bundle.sample_a << '\t'
+                << bundle.sample_b << '\t' << bundle.sequence_a << '\t'
+                << bundle.sequence_b << '\t' << bundle.chain_id << '\t'
+                << bundle.source << '\t' << bundle.strand << '\t'
+                << strand_summary.effective_strand << '\t'
+                << strand_summary.forward_count << '\t'
+                << strand_summary.reverse_count << '\t'
+                << strand_summary.incompatible_count << '\t'
+                << bundle.ref_start << '\t' << bundle.ref_end << '\t'
+                << bundle.query_start << '\t' << bundle.query_end << '\n';
+            ++result.skipped_bundle_count;
+            if (boundary_flank) {
+                paf_records.push_back(*boundary_flank);
+                ++result.aligned_bundle_count;
+            }
             continue;
         }
 

@@ -51,6 +51,7 @@ struct EmittedChain {
     std::uint64_t ref_end = 0;
     std::uint64_t query_start = 0;
     std::uint64_t query_end = 0;
+    double raw_score = 0.0;
     double score = 0.0;
     std::uint64_t both_anchor_count = 0;
     std::vector<Candidate> anchors;
@@ -77,7 +78,8 @@ std::vector<std::size_t> chain_group(std::vector<Candidate>& candidates,
 EmittedChain make_emitted_chain(std::uint64_t chain_id,
                                 const std::vector<Candidate>& group,
                                 const std::vector<std::size_t>& chain,
-                                double chain_score);
+                                double chain_score,
+                                const ChainingParameters& parameters);
 
 std::vector<EmittedChain> trim_overlapping_chains(
     std::vector<EmittedChain> chains,

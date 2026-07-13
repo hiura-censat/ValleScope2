@@ -111,7 +111,8 @@ std::vector<std::size_t> chain_group(std::vector<Candidate>& candidates,
 EmittedChain make_emitted_chain(const std::uint64_t chain_id,
                                 const std::vector<Candidate>& group,
                                 const std::vector<std::size_t>& chain,
-                                const double chain_score) {
+                                const double chain_score,
+                                const ChainingParameters& parameters) {
     const auto& first = group[chain.front()];
     const auto& last = group[chain.back()];
     EmittedChain emitted;
@@ -125,7 +126,7 @@ EmittedChain make_emitted_chain(const std::uint64_t chain_id,
     emitted.ref_end = last.ref_center;
     emitted.query_start = first.query_center;
     emitted.query_end = first.query_center;
-    emitted.score = chain_score;
+    emitted.raw_score = chain_score;
     emitted.anchors.reserve(chain.size());
     for (const auto index : chain) {
         emitted.query_start = std::min(emitted.query_start, group[index].query_center);
@@ -133,6 +134,13 @@ EmittedChain make_emitted_chain(const std::uint64_t chain_id,
         if (group[index].support_direction == "both") ++emitted.both_anchor_count;
         emitted.anchors.push_back(group[index]);
     }
+    const auto both_rate = emitted.anchors.empty()
+        ? 0.0
+        : static_cast<double>(emitted.both_anchor_count) /
+              static_cast<double>(emitted.anchors.size());
+    emitted.score = emitted.raw_score *
+        ((1.0 - parameters.reciprocal_score_weight) +
+         parameters.reciprocal_score_weight * both_rate);
     return emitted;
 }
 

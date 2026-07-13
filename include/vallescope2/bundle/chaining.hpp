@@ -21,6 +21,8 @@ struct ChainingParameters {
     std::uint32_t min_chain_both_anchors = 1;
     double min_chain_score = 0.0;
     double chain_trim_overlap = 0.01;
+    double reciprocal_score_weight = 0.8;
+    double multimap_overlap = 0.5;
     std::uint32_t refinement_window = 50000;
     std::uint32_t refinement_min_chain_anchors = 5;
 };

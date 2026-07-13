@@ -78,6 +78,21 @@ struct PatchAttempt {
     int zdrop_suffix_status = 0;
     std::uint64_t zdrop_ref_span = 0;
     std::uint64_t zdrop_query_span = 0;
+    bool clean_prefix = false;
+    std::uint64_t clean_ref_end = 0;
+    std::uint64_t clean_query_start = 0;
+    std::uint64_t clean_query_end = 0;
+    std::uint64_t clean_right_flank_bp = 0;
+    std::string clean_cigar;
+    bool boundary_suffix = false;
+    std::uint64_t boundary_ref_start = 0;
+    std::uint64_t boundary_ref_end = 0;
+    std::uint64_t boundary_query_start = 0;
+    std::uint64_t boundary_query_end = 0;
+    bool inversion_tested = false;
+    bool inversion_detected = false;
+    double inversion_forward_identity = 0.0;
+    double inversion_reverse_identity = 0.0;
     std::int64_t score = 0;
     std::string cigar;
 };
@@ -100,6 +115,9 @@ constexpr double kMinPatchEndpointIdentity = 0.85;
 constexpr double kMaxPatchShortErrorDensity = 0.15;
 constexpr int kPatchZDrop = 20;
 constexpr int kPatchZDropSteps = 1;
+constexpr std::uint64_t kMaxSmallInversionBp = 20000;
+constexpr double kMinSmallInversionIdentity = 0.90;
+constexpr double kSmallInversionIdentityMargin = 0.05;
 
 std::uint64_t positive_gap(const std::uint64_t left_end,
                            const std::uint64_t right_start) {
@@ -299,15 +317,15 @@ Interval query_gap_interval(const ChainBundle& left,
     return {right.query_end, left.query_start};
 }
 
-bool overlaps_opposite_strand_bundle(
+const ChainBundle* find_opposite_strand_bundle(
     const ChainBundle& left,
-    const ChainBundle& right,
+    const Interval& ref_interval,
+    const Interval& query_interval,
     const std::vector<ChainBundle>& bundles,
     const std::uint32_t minimum_overlap) {
-    const Interval ref_gap{left.ref_end, right.ref_start};
-    const Interval query_gap = query_gap_interval(left, right);
-    if (ref_gap.start >= ref_gap.end || query_gap.start >= query_gap.end) {
-        return false;
+    if (ref_interval.start >= ref_interval.end ||
+        query_interval.start >= query_interval.end) {
+        return nullptr;
     }
 
     for (const auto& bundle : bundles) {
@@ -318,19 +336,19 @@ bool overlaps_opposite_strand_bundle(
             bundle.strand == left.strand) {
             continue;
         }
-        if (interval_overlap(ref_gap.start, ref_gap.end,
+        if (interval_overlap(ref_interval.start, ref_interval.end,
                              bundle.ref_start, bundle.ref_end) <
             minimum_overlap) {
             continue;
         }
-        if (interval_overlap(query_gap.start, query_gap.end,
+        if (interval_overlap(query_interval.start, query_interval.end,
                              bundle.query_start, bundle.query_end) <
             minimum_overlap) {
             continue;
         }
-        return true;
+        return &bundle;
     }
-    return false;
+    return nullptr;
 }
 
 std::string bundle_track_key(const ChainBundle& bundle) {
@@ -346,6 +364,50 @@ std::string fetch_patch_query(faidx_t* index,
     auto sequence = fetch_interval(index, sequence_id, interval);
     if (strand == '-') sequence = reverse_complement(sequence);
     return sequence;
+}
+
+void run_small_inversion_test(PatchAttempt& attempt,
+                              faidx_t* index,
+                              const ChainBundle& blocker,
+                              const BaseAlignmentParameters& parameters) {
+    const auto ref_span = interval_span(blocker.ref_start, blocker.ref_end);
+    const auto query_span = interval_span(blocker.query_start, blocker.query_end);
+    if (ref_span < kMinRescueFlankBp || query_span < kMinRescueFlankBp ||
+        ref_span > kMaxSmallInversionBp || query_span > kMaxSmallInversionBp) {
+        return;
+    }
+    attempt.inversion_tested = true;
+    try {
+        const auto ref = fetch_interval(
+            index, blocker.sequence_a, {blocker.ref_start, blocker.ref_end});
+        const auto query = fetch_interval(
+            index, blocker.sequence_b,
+            {blocker.query_start, blocker.query_end});
+        const auto forward = align_segment(ref, query, parameters);
+        const auto reverse = align_segment(
+            ref, reverse_complement(query), parameters);
+        attempt.inversion_forward_identity =
+            forward.block_length == 0
+                ? 0.0
+                : static_cast<double>(forward.matches) /
+                      static_cast<double>(forward.block_length);
+        attempt.inversion_reverse_identity =
+            reverse.block_length == 0
+                ? 0.0
+                : static_cast<double>(reverse.matches) /
+                      static_cast<double>(reverse.block_length);
+        const auto opposite_identity = blocker.strand == '-'
+            ? attempt.inversion_reverse_identity
+            : attempt.inversion_forward_identity;
+        const auto same_identity = blocker.strand == '-'
+            ? attempt.inversion_forward_identity
+            : attempt.inversion_reverse_identity;
+        attempt.inversion_detected =
+            opposite_identity >= kMinSmallInversionIdentity &&
+            opposite_identity >= same_identity + kSmallInversionIdentityMargin;
+    } catch (const std::exception&) {
+        attempt.inversion_detected = false;
+    }
 }
 
 PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
@@ -583,6 +645,163 @@ void validate_patch_with_zdrop(PatchAttempt& attempt,
         attempt.zdrop_suffix_status != wfa::WFAligner::StatusAlgCompleted;
 }
 
+bool retain_clean_prefix(PatchAttempt& attempt,
+                         faidx_t* index,
+                         const ChainBundle& left,
+                         const ChainBundle& right,
+                         const BaseAlignmentParameters& parameters) {
+    const Interval ref_interval{left.ref_start, right.ref_end};
+    const Interval query_interval{
+        std::min(left.query_start, right.query_start),
+        std::max(left.query_end, right.query_end)};
+    const auto ref = fetch_interval(index, left.sequence_a, ref_interval);
+    const auto query = fetch_patch_query(
+        index, left.sequence_b, query_interval, left.strand);
+    wfa::WFAlignerGapAffine2Pieces aligner(
+        19, 39, 3, 81, 1,
+        wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
+    const auto max_memory =
+        static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) *
+        1024ULL * 1024ULL * 1024ULL;
+    aligner.setMaxMemory(max_memory, max_memory);
+    if (aligner.alignEnd2End(ref, query) !=
+        wfa::WFAligner::StatusAlgCompleted) {
+        return false;
+    }
+
+    const auto cigar = aligner.getCIGAR(true);
+    std::uint64_t total_ref_offset = 0;
+    std::uint64_t total_query_offset = 0;
+    std::uint64_t suffix_ref_offset = 0;
+    std::uint64_t suffix_query_offset = 0;
+    std::uint64_t suffix_length = 0;
+    char suffix_op = '.';
+    std::size_t suffix_begin = 0;
+    while (suffix_begin < cigar.size()) {
+        std::size_t suffix_end = suffix_begin;
+        while (suffix_end < cigar.size() &&
+               std::isdigit(static_cast<unsigned char>(cigar[suffix_end]))) {
+            ++suffix_end;
+        }
+        if (suffix_end == suffix_begin || suffix_end >= cigar.size()) {
+            return false;
+        }
+        suffix_ref_offset = total_ref_offset;
+        suffix_query_offset = total_query_offset;
+        suffix_length = parse_u64(
+            cigar.substr(suffix_begin, suffix_end - suffix_begin),
+            "cigar_length");
+        suffix_op = cigar[suffix_end];
+        if (suffix_op == '=' || suffix_op == 'X' || suffix_op == 'M') {
+            total_ref_offset += suffix_length;
+            total_query_offset += suffix_length;
+        } else if (suffix_op == 'I') {
+            total_query_offset += suffix_length;
+        } else if (suffix_op == 'D') {
+            total_ref_offset += suffix_length;
+        } else {
+            return false;
+        }
+        suffix_begin = suffix_end + 1;
+    }
+    if (suffix_op == '=' && suffix_length >= kMinRescueFlankBp) {
+        attempt.boundary_suffix = true;
+        attempt.boundary_ref_start = ref_interval.start + suffix_ref_offset;
+        attempt.boundary_ref_end = attempt.boundary_ref_start + suffix_length;
+        if (left.strand == '+') {
+            attempt.boundary_query_start =
+                query_interval.start + suffix_query_offset;
+            attempt.boundary_query_end =
+                attempt.boundary_query_start + suffix_length;
+        } else {
+            attempt.boundary_query_end =
+                query_interval.end - suffix_query_offset;
+            attempt.boundary_query_start =
+                attempt.boundary_query_end - suffix_length;
+        }
+    }
+
+    std::uint64_t ref_offset = 0;
+    std::uint64_t query_offset = 0;
+    std::uint64_t right_flank_bp = 0;
+    bool found_primary = false;
+    std::string retained;
+    std::size_t begin = 0;
+    while (begin < cigar.size()) {
+        std::size_t end = begin;
+        while (end < cigar.size() &&
+               std::isdigit(static_cast<unsigned char>(cigar[end]))) {
+            ++end;
+        }
+        if (end == begin || end >= cigar.size()) return false;
+        const auto length = parse_u64(cigar.substr(begin, end - begin),
+                                      "cigar_length");
+        const char op = cigar[end];
+        const bool primary = !found_primary &&
+            op == attempt.rescue_indel_op &&
+            length == attempt.rescue_indel_len;
+        if (primary) found_primary = true;
+
+        if (found_primary && !primary && op != '=') {
+            std::uint64_t columns = 0;
+            std::uint64_t errors = 0;
+            std::size_t scan = begin;
+            while (scan < cigar.size() && columns < kPatchQualityWindowBp) {
+                std::size_t number_end = scan;
+                while (number_end < cigar.size() &&
+                       std::isdigit(static_cast<unsigned char>(cigar[number_end]))) {
+                    ++number_end;
+                }
+                if (number_end == scan || number_end >= cigar.size()) break;
+                const auto scan_length = parse_u64(
+                    cigar.substr(scan, number_end - scan), "cigar_length");
+                const auto take = std::min<std::uint64_t>(
+                    scan_length, kPatchQualityWindowBp - columns);
+                if (cigar[number_end] != '=') errors += take;
+                columns += take;
+                scan = number_end + 1;
+            }
+            const auto density = columns == 0
+                ? 0.0
+                : static_cast<double>(errors) / static_cast<double>(columns);
+            if (right_flank_bp >= kMinRescueFlankBp &&
+                density > kMaxPatchShortErrorDensity) {
+                break;
+            }
+        }
+
+        append_cigar_operation(retained, length, op);
+        if (found_primary && !primary && op == '=') right_flank_bp += length;
+        if (op == '=' || op == 'X' || op == 'M') {
+            ref_offset += length;
+            query_offset += length;
+        } else if (op == 'I') {
+            query_offset += length;
+        } else if (op == 'D') {
+            ref_offset += length;
+        } else {
+            return false;
+        }
+        begin = end + 1;
+    }
+    if (!found_primary || right_flank_bp < kMinRescueFlankBp ||
+        ref_offset >= ref.size() || query_offset >= query.size()) {
+        return false;
+    }
+    attempt.clean_prefix = true;
+    attempt.clean_ref_end = ref_interval.start + ref_offset;
+    if (left.strand == '+') {
+        attempt.clean_query_start = query_interval.start;
+        attempt.clean_query_end = query_interval.start + query_offset;
+    } else {
+        attempt.clean_query_start = query_interval.end - query_offset;
+        attempt.clean_query_end = query_interval.end;
+    }
+    attempt.clean_right_flank_bp = right_flank_bp;
+    attempt.clean_cigar = std::move(retained);
+    return true;
+}
+
 PatchAttempt align_patch_interval(faidx_t* index,
                                   const ChainBundle& left,
                                   const ChainBundle& right,
@@ -642,8 +861,14 @@ PatchAttempt align_patch_interval(faidx_t* index,
                     attempt, index, left, right, parameters);
             }
             if (attempt.zdrop_fired) {
-                attempt.classification = "patch_zdrop_reject";
-                attempt.merge = false;
+                if (retain_clean_prefix(
+                        attempt, index, left, right, parameters)) {
+                    attempt.classification = "patch_clean_prefix";
+                    attempt.merge = true;
+                } else {
+                    attempt.classification = "patch_zdrop_reject";
+                    attempt.merge = false;
+                }
             } else {
                 attempt.classification = "patch_long_indel_rescue";
                 attempt.merge = true;
@@ -678,15 +903,33 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
         query_gap > parameters.max_patch_gap_bp) {
         return attempt;
     }
-    if (overlaps_opposite_strand_bundle(
-            left, right, bundles, parameters.anchor_length)) {
+    const Interval ref_gap_interval{left.ref_end, right.ref_start};
+    const auto query_gap_region = query_gap_interval(left, right);
+    const auto* strand_blocker = find_opposite_strand_bundle(
+        left, ref_gap_interval, query_gap_region, bundles,
+        parameters.anchor_length);
+    if (strand_blocker != nullptr) {
         attempt.classification = "opposite_strand_overlap";
         attempt.ref_gap = ref_gap;
         attempt.query_gap = query_gap;
-        return attempt;
+        run_small_inversion_test(
+            attempt, index, *strand_blocker, parameters);
+    } else {
+        attempt = align_patch_interval(index, left, right, parameters);
+        if (attempt.zdrop_fired) {
+            const Interval merged_ref{left.ref_start, right.ref_end};
+            const Interval merged_query{
+                std::min(left.query_start, right.query_start),
+                std::max(left.query_end, right.query_end)};
+            const auto* zdrop_blocker = find_opposite_strand_bundle(
+                left, merged_ref, merged_query, bundles,
+                parameters.anchor_length);
+            if (zdrop_blocker != nullptr) {
+                run_small_inversion_test(
+                    attempt, index, *zdrop_blocker, parameters);
+            }
+        }
     }
-
-    attempt = align_patch_interval(index, left, right, parameters);
     patch_report
         << patch_id << '\t' << attempt.classification << '\t'
         << left.chain_id << '\t' << right.chain_id << '\t'
@@ -717,6 +960,21 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
         << attempt.zdrop_suffix_status << '\t'
         << attempt.zdrop_ref_span << '\t'
         << attempt.zdrop_query_span << '\t'
+        << (attempt.clean_prefix ? 1 : 0) << '\t'
+        << attempt.clean_ref_end << '\t'
+        << attempt.clean_query_start << '\t'
+        << attempt.clean_query_end << '\t'
+        << attempt.clean_right_flank_bp << '\t'
+        << attempt.clean_cigar << '\t'
+        << (attempt.boundary_suffix ? 1 : 0) << '\t'
+        << attempt.boundary_ref_start << '\t'
+        << attempt.boundary_ref_end << '\t'
+        << attempt.boundary_query_start << '\t'
+        << attempt.boundary_query_end << '\t'
+        << (attempt.inversion_tested ? 1 : 0) << '\t'
+        << (attempt.inversion_detected ? 1 : 0) << '\t'
+        << attempt.inversion_forward_identity << '\t'
+        << attempt.inversion_reverse_identity << '\t'
         << (attempt.merge ? 1 : 0) << '\t' << attempt.cigar << '\t'
         << left.ref_start << '\t' << left.ref_end << '\t'
         << left.query_start << '\t' << left.query_end << '\t'
@@ -729,6 +987,7 @@ std::vector<ChainBundle> patch_adjacent_bundles(
     std::vector<ChainBundle> bundles,
     faidx_t* index,
     const std::vector<ExtensionCandidate>&,
+    const AnchorStore& store,
     const BaseAlignmentParameters& parameters,
     const std::filesystem::path& patch_extension_output,
     std::uint64_t& patch_count) {
@@ -753,6 +1012,12 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         << "\tzdrop_checked\tzdrop_fired\tzdrop_status"
         << "\tzdrop_prefix_status\tzdrop_suffix_status"
         << "\tzdrop_ref_span\tzdrop_query_span"
+        << "\tclean_prefix\tclean_ref_end\tclean_query_start"
+        << "\tclean_query_end\tclean_right_flank_bp\tclean_cigar"
+        << "\tboundary_suffix\tboundary_ref_start\tboundary_ref_end"
+        << "\tboundary_query_start\tboundary_query_end"
+        << "\tinversion_tested\tinversion_detected"
+        << "\tinversion_forward_identity\tinversion_reverse_identity"
         << "\tmerge\tcigar"
         << "\tleft_ref_start\tleft_ref_end"
         << "\tleft_query_start\tleft_query_end\tright_ref_start"
@@ -786,17 +1051,57 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         }
         auto& merged = patched.back();
         merged.ref_start = std::min(merged.ref_start, incoming.ref_start);
-        merged.ref_end = std::max(merged.ref_end, incoming.ref_end);
+        merged.ref_end = attempt.clean_prefix
+            ? attempt.clean_ref_end
+            : std::max(merged.ref_end, incoming.ref_end);
         merged.query_start = std::min(merged.query_start, incoming.query_start);
         merged.query_end = std::max(merged.query_end, incoming.query_end);
+        if (attempt.clean_prefix) {
+            merged.query_start = attempt.clean_query_start;
+            merged.query_end = attempt.clean_query_end;
+        }
         merged.score += incoming.score;
         merged.patch_count += incoming.patch_count + 1;
         merged.trim_count += incoming.trim_count;
         merged.anchor_indices.insert(merged.anchor_indices.end(),
                                      incoming.anchor_indices.begin(),
                                      incoming.anchor_indices.end());
+        if (attempt.clean_prefix) {
+            merged.anchor_indices.erase(
+                std::remove_if(
+                    merged.anchor_indices.begin(), merged.anchor_indices.end(),
+                    [&](const std::size_t anchor_index) {
+                        if (anchor_index >= store.anchors.size()) return true;
+                        const auto& anchor = store.anchors[anchor_index];
+                        if (anchor.ref_end > merged.ref_end) return true;
+                        if (merged.strand == '+') {
+                            return anchor.query_end > merged.query_end;
+                        }
+                        return anchor.query_start < merged.query_start;
+                    }),
+                merged.anchor_indices.end());
+        }
         merged.source = attempt.classification;
         ++patch_count;
+        if (attempt.clean_prefix && attempt.inversion_detected &&
+            attempt.boundary_suffix &&
+            attempt.boundary_ref_start >= merged.ref_end) {
+            ChainBundle boundary;
+            boundary.source = "inversion_boundary_flank";
+            boundary.chain_id = incoming.chain_id;
+            boundary.score = static_cast<double>(
+                attempt.boundary_ref_end - attempt.boundary_ref_start);
+            boundary.sample_a = incoming.sample_a;
+            boundary.sample_b = incoming.sample_b;
+            boundary.sequence_a = incoming.sequence_a;
+            boundary.sequence_b = incoming.sequence_b;
+            boundary.strand = incoming.strand;
+            boundary.ref_start = attempt.boundary_ref_start;
+            boundary.ref_end = attempt.boundary_ref_end;
+            boundary.query_start = attempt.boundary_query_start;
+            boundary.query_end = attempt.boundary_query_end;
+            patched.push_back(std::move(boundary));
+        }
     }
     return patched;
 }

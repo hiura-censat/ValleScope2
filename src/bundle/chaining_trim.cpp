@@ -51,15 +51,23 @@ double both_rate(const EmittedChain& chain) {
            static_cast<double>(chain.anchors.size());
 }
 
+double adjusted_score(const double raw_score,
+                      const double rate,
+                      const ChainingParameters& parameters) {
+    return raw_score *
+        ((1.0 - parameters.reciprocal_score_weight) +
+         parameters.reciprocal_score_weight * rate);
+}
+
 bool chain_has_higher_trim_priority(const EmittedChain& left,
                                     const EmittedChain& right) {
+    if (left.score != right.score) return left.score > right.score;
     const auto left_rate = both_rate(left);
     const auto right_rate = both_rate(right);
     if (left_rate != right_rate) return left_rate > right_rate;
     if (left.both_anchor_count != right.both_anchor_count) {
         return left.both_anchor_count > right.both_anchor_count;
     }
-    if (left.score != right.score) return left.score > right.score;
     if (left.anchors.size() != right.anchors.size()) {
         return left.anchors.size() > right.anchors.size();
     }
@@ -123,9 +131,35 @@ EmittedChain make_chain_from_anchors(std::vector<Candidate> anchors,
         chain.query_end = std::max(chain.query_end, anchor.query_center);
         if (anchor.support_direction == "both") ++chain.both_anchor_count;
     }
-    chain.score = path_score(anchors, parameters);
+    chain.raw_score = path_score(anchors, parameters);
     chain.anchors = std::move(anchors);
+    chain.score = adjusted_score(
+        chain.raw_score, both_rate(chain), parameters);
     return chain;
+}
+
+bool is_one_sided_multimap(const EmittedChain& low,
+                           const EmittedChain& high,
+                           const ChainingParameters& parameters) {
+    if (!same_track(low, high) || parameters.multimap_overlap <= 0.0) {
+        return false;
+    }
+    const auto ref_overlap = overlap_length(
+        low.ref_start, low.ref_end, high.ref_start, high.ref_end);
+    const auto query_overlap = overlap_length(
+        low.query_start, low.query_end, high.query_start, high.query_end);
+    const double ref_ratio =
+        static_cast<double>(ref_overlap) /
+        static_cast<double>(std::min(span_length(low.ref_start, low.ref_end),
+                                     span_length(high.ref_start, high.ref_end)));
+    const double query_ratio =
+        static_cast<double>(query_overlap) /
+        static_cast<double>(std::min(span_length(low.query_start, low.query_end),
+                                     span_length(high.query_start, high.query_end)));
+    return (ref_ratio >= parameters.multimap_overlap &&
+            query_ratio < parameters.chain_trim_overlap) ||
+           (query_ratio >= parameters.multimap_overlap &&
+            ref_ratio < parameters.chain_trim_overlap);
 }
 
 bool should_trim_against(const EmittedChain& low,
@@ -201,6 +235,9 @@ std::vector<EmittedChain> trim_overlapping_chains(
         for (const auto& high : accepted) {
             std::vector<EmittedChain> next_fragments;
             for (auto& fragment : fragments) {
+                if (is_one_sided_multimap(fragment, high, parameters)) {
+                    continue;
+                }
                 if (should_trim_against(fragment, high,
                                         parameters.chain_trim_overlap)) {
                     auto split = split_after_trimming(fragment, high, parameters);

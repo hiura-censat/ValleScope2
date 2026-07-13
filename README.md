@@ -166,6 +166,8 @@ Chaining and refinement:
 --min-chain-both-anchors INT       default: 1
 --min-chain-score FLOAT            default: 0
 --chain-trim-overlap FLOAT         default: 0.01
+--chain-reciprocal-weight FLOAT    default: 0.8
+--chain-multimap-overlap FLOAT     default: 0.5
 --refinement-window INT            default: 50000
 --refinement-min-chain-anchors INT default: 5
 ```
@@ -384,6 +386,20 @@ Multiple chains are extracted iteratively after removing used candidates.
 (`support_direction=both`) anchor pairs per emitted chain; this is useful for
 filtering one-direction-only repeat-copy chains during QC.
 
+Completed chains receive a reciprocal-support adjustment before ranking and
+downstream bundle processing:
+
+```text
+chain_score = raw_chain_score *
+              ((1 - reciprocal_weight) + reciprocal_weight * both_rate)
+```
+
+The default reciprocal weight is 0.8. If two chains on the same sequence pair
+and strand overlap by at least `--chain-multimap-overlap` on one axis but not
+on the other, they are treated as competing repeat-copy mappings and only the
+higher adjusted-score chain is retained. This comparison is sample-symmetric
+and does not use a designated reference sequence.
+
 Outputs:
 
 ```text
@@ -444,10 +460,23 @@ Long-indel rescue candidates connected to a chain-extended bundle, or with a
 locally suspicious CIGAR, receive an additional segmented Z-drop check. The
 primary long insertion/deletion is excluded from this check: ValleScope2 runs
 WFA2 Z-drop outward from both sides of the primary event (`zdrop=20`, cutoff
-every score step). A partial or failed prefix/suffix alignment rejects the full
-bundle merge as `patch_zdrop_reject`. Debug `patch_intervals.tsv` records the
-local endpoint identities, maximum 500 bp short-error density, Z-drop statuses,
-and validation spans.
+every score step). After a partial prefix/suffix result, an exact merged-interval
+alignment is inspected for a clean prefix containing the primary long I/D and
+at least 200 bp of clean right flank. ValleScope2 retains that prefix as
+`patch_clean_prefix` and removes anchors beyond the first 500 bp window whose
+short-error density exceeds 0.15; if no clean prefix exists, it reports
+`patch_zdrop_reject`.
+
+Z-drop events and opposite-strand gap blockers also trigger a small-inversion
+test for blocker intervals up to 20 kbp. Forward and reverse-complement WFA
+identities are compared; reverse support requires at least 0.90 identity and a
+0.05 advantage. Non-positive final alignments whose bundle source is
+`extended` are omitted from PAF output. If such an alignment ends in an exact
+flank of at least 200 bp, that terminal flank is retained separately as
+`inversion_boundary_flank`. This preserves a graph boundary between a detected
+inversion and a nearby SV without restoring the rejected noisy alignment.
+Debug `patch_intervals.tsv` records the local quality, Z-drop, retained-prefix,
+and inversion-test fields.
 
 After gap patching, the final bundle set is overlap-trimmed immediately before
 base alignment. Lower-scoring bundles are trimmed only when both the ref and
