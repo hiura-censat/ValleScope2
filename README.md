@@ -168,8 +168,8 @@ Chaining and refinement:
 --chain-trim-overlap FLOAT         default: 0.01
 --chain-reciprocal-weight FLOAT    default: 0.8
 --chain-multimap-overlap FLOAT     default: 0.5
---refinement-window INT            default: 50000
---refinement-min-chain-anchors INT default: 5
+--refinement-window INT            default: 100000
+--refinement-min-chain-anchors INT default: 20
 ```
 
 Base-level bundle alignment:

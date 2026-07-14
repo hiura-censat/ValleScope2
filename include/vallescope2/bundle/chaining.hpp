@@ -23,8 +23,8 @@ struct ChainingParameters {
     double chain_trim_overlap = 0.01;
     double reciprocal_score_weight = 0.8;
     double multimap_overlap = 0.5;
-    std::uint32_t refinement_window = 50000;
-    std::uint32_t refinement_min_chain_anchors = 5;
+    std::uint32_t refinement_window = 100000;
+    std::uint32_t refinement_min_chain_anchors = 20;
 };
 
 struct ChainingResult {
