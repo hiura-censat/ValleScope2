@@ -158,11 +158,11 @@ Chaining and refinement:
 
 ```text
 --chain-predecessors INT           default: 50
---max-chain-gap INT                default: 750
+--max-chain-gap INT                default: 300
 --chain-max-gap-ratio FLOAT        default: 1.05
 --gap-cost-model MODE              default: absolute
 --gap-weight FLOAT                 default: 0.002
---min-chain-anchors INT            default: 20
+--min-chain-anchors INT            default: 10
 --min-chain-both-anchors INT       default: 1
 --min-chain-score FLOAT            default: 0
 --chain-trim-overlap FLOAT         default: 0.01
@@ -177,11 +177,13 @@ Base-level bundle alignment:
 ```text
 --base-align
 --no-base-align
+--use-refined-chains               default: on
+--no-refined-chains
 --chain-extension                 default: on
 --no-chain-extension
 --max-chain-extension-bp INT      default: 70000
---min-chain-extension-anchors INT default: 1
---min-chain-extension-score FLOAT default: 0
+--min-chain-extension-anchors INT default: 5
+--min-chain-extension-score FLOAT default: 100
 --min-copy-support-anchors INT    default: 1
 --max-bundle-align-bp INT          default: 1000000
 --max-patch-gap-bp INT            default: 70000

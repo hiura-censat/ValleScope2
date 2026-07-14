@@ -19,13 +19,13 @@ struct BaseAlignmentParameters {
     bool chain_extension = true;
     std::uint32_t chain_extension_predecessors = 50;
     std::uint32_t max_chain_extension_bp = 70000;
-    std::uint32_t max_chain_gap = 750;
+    std::uint32_t max_chain_gap = 300;
     double chain_max_gap_ratio = 1.05;
     GapCostModel gap_cost_model = GapCostModel::absolute;
     double gap_weight = 0.002;
     std::uint32_t gap_unit = 10;
-    std::uint32_t min_chain_extension_anchors = 1;
-    double min_chain_extension_score = 0.0;
+    std::uint32_t min_chain_extension_anchors = 5;
+    double min_chain_extension_score = 100.0;
     std::uint32_t min_copy_support_anchors = 1;
 };
 

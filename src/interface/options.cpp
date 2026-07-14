@@ -31,11 +31,11 @@ void print_usage(std::ostream& output) {
            << "  -pm, --primary-margin INT  Primary assignment score margin [5]\n"
            << "  --pair-merge-mode MODE  reciprocal or union [union]\n"
            << "  --chain-predecessors INT  Chaining predecessor search limit [50]\n"
-           << "  --max-chain-gap INT  Maximum ref/query gap between chained anchors [750]\n"
+           << "  --max-chain-gap INT  Maximum ref/query gap between chained anchors [300]\n"
            << "  --chain-max-gap-ratio FLOAT  Maximum max(dr,dq)/min(dr,dq) [1.05]\n"
            << "  --gap-cost-model MODE  absolute or relative [absolute]\n"
            << "  --gap-weight FLOAT  Linear chaining gap weight [0.002]\n"
-           << "  --min-chain-anchors INT  Minimum anchors per emitted chain [20]\n"
+           << "  --min-chain-anchors INT  Minimum anchors per emitted chain [10]\n"
            << "  --min-chain-both-anchors INT  Minimum both-supported anchors per emitted chain [1]\n"
            << "  --min-chain-score FLOAT  Minimum score per emitted chain [0]\n"
            << "  --chain-trim-overlap FLOAT  Ref/query overlap for trimming lower-score chains/bundles [0.01]\n"
@@ -45,11 +45,13 @@ void print_usage(std::ostream& output) {
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [5]\n"
            << "  --base-align  Write base-level bundle PAF to stdout with cg:Z [default]\n"
            << "  --no-base-align  Stop after chaining and do not write final PAF\n"
+           << "  --use-refined-chains  Feed refined_chains.tsv into base alignment alongside chains.tsv [default]\n"
+           << "  --no-refined-chains  Base alignment only uses chains.tsv, ignoring refined_chains.tsv\n"
            << "  --chain-extension  Extend adjacent chains using correspondence DP before gap patching [default]\n"
            << "  --no-chain-extension  Disable chain extension before gap patching\n"
            << "  --max-chain-extension-bp INT  Maximum bundle gap considered for chain extension [70000]\n"
-           << "  --min-chain-extension-anchors INT  Minimum anchors for partial chain extension [1]\n"
-           << "  --min-chain-extension-score FLOAT  Minimum DP score for partial chain extension [0]\n"
+           << "  --min-chain-extension-anchors INT  Minimum anchors for partial chain extension [5]\n"
+           << "  --min-chain-extension-score FLOAT  Minimum DP score for partial chain extension [100]\n"
            << "  --min-copy-support-anchors INT  both-supported anchors needed to classify a residual as dup branch [1]\n"
            << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [1000000]\n"
            << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
@@ -143,6 +145,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--debug") options.debug = true;
         else if (argument == "--base-align") options.base_align = true;
         else if (argument == "--no-base-align") options.base_align = false;
+        else if (argument == "--use-refined-chains") options.use_refined_chains = true;
+        else if (argument == "--no-refined-chains") options.use_refined_chains = false;
         else if (argument == "--chain-extension") options.chain_extension = true;
         else if (argument == "--no-chain-extension") options.chain_extension = false;
         else if (argument == "--dump-window-scores") options.dump_window_scores = true;

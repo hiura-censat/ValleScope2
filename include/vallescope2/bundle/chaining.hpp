@@ -12,12 +12,12 @@ enum class GapCostModel {
 
 struct ChainingParameters {
     std::uint32_t predecessor_count = 50;
-    std::uint32_t max_chain_gap = 750;
+    std::uint32_t max_chain_gap = 300;
     double chain_max_gap_ratio = 1.05;
     GapCostModel gap_cost_model = GapCostModel::absolute;
     double gap_weight = 0.002;
     std::uint32_t gap_unit = 10;
-    std::uint32_t min_chain_anchors = 20;
+    std::uint32_t min_chain_anchors = 10;
     std::uint32_t min_chain_both_anchors = 1;
     double min_chain_score = 0.0;
     double chain_trim_overlap = 0.01;
