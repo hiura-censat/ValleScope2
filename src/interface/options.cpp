@@ -45,8 +45,6 @@ void print_usage(std::ostream& output) {
            << "  --refinement-min-chain-anchors INT  Minimum anchors per refined chain [20]\n"
            << "  --base-align  Write base-level bundle PAF to stdout with cg:Z [default]\n"
            << "  --no-base-align  Stop after chaining and do not write final PAF\n"
-           << "  --use-refined-chains  Feed refined_chains.tsv into base alignment alongside chains.tsv [default]\n"
-           << "  --no-refined-chains  Base alignment only uses chains.tsv, ignoring refined_chains.tsv\n"
            << "  --chain-extension  Extend adjacent chains using correspondence DP before gap patching [default]\n"
            << "  --no-chain-extension  Disable chain extension before gap patching\n"
            << "  --max-chain-extension-bp INT  Maximum bundle gap considered for chain extension [70000]\n"
@@ -145,8 +143,6 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--debug") options.debug = true;
         else if (argument == "--base-align") options.base_align = true;
         else if (argument == "--no-base-align") options.base_align = false;
-        else if (argument == "--use-refined-chains") options.use_refined_chains = true;
-        else if (argument == "--no-refined-chains") options.use_refined_chains = false;
         else if (argument == "--chain-extension") options.chain_extension = true;
         else if (argument == "--no-chain-extension") options.chain_extension = false;
         else if (argument == "--dump-window-scores") options.dump_window_scores = true;

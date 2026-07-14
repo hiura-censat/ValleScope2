@@ -177,8 +177,6 @@ Base-level bundle alignment:
 ```text
 --base-align
 --no-base-align
---use-refined-chains               default: on
---no-refined-chains
 --chain-extension                 default: on
 --no-chain-extension
 --max-chain-extension-bp INT      default: 70000

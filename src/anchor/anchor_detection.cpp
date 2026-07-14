@@ -189,15 +189,8 @@ void run_anchor_detection(const ProgramOptions& options) {
             options.min_chain_extension_score;
         base_parameters.min_copy_support_anchors =
             options.min_copy_support_anchors;
-        const std::vector<std::filesystem::path> chain_files =
-            options.use_refined_chains ? std::vector<std::filesystem::path>{chains, refined_chains}
-                                        : std::vector<std::filesystem::path>{chains};
-        const std::vector<std::filesystem::path> chain_anchor_files =
-            options.use_refined_chains
-                ? std::vector<std::filesystem::path>{chain_anchors, refined_chain_anchors}
-                : std::vector<std::filesystem::path>{chain_anchors};
         base_alignment = align_chain_bundles(
-            chain_files, chain_anchor_files,
+            {chains}, {chain_anchors},
             grouped_anchors, correspondences, assignments, genmap.input_fasta,
             context_index, bundle_alignments, bundle_alignment_metadata,
             base_parameters);

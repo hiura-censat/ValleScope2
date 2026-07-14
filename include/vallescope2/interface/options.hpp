@@ -14,7 +14,6 @@ struct ProgramOptions {
     bool combine = false;
     bool debug = false;
     bool base_align = true;
-    bool use_refined_chains = true;
     bool chain_extension = true;
     bool dump_window_scores = false;
     std::uint32_t anchor_length = 50;
