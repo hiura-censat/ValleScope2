@@ -313,7 +313,8 @@ void normalize_paf_records(std::vector<PafRecord>& records,
                     ref_overlap + parameters.patch_flank_bp &&
                 terminal_exact_match_bp(right.alignment.cigar, true) >=
                     std::max<std::uint64_t>(
-                        kMinDupJunctionFlankBp, parameters.patch_flank_bp);
+                        {kMinDupJunctionFlankBp, parameters.patch_flank_bp,
+                         ref_overlap});
             const char* reason =
                 overlap_chain_duplication
                     ? "overlap_chain_duplication"
