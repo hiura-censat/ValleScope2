@@ -20,6 +20,8 @@ namespace {
 
 enum class BundleAxis { ref, query };
 
+constexpr std::uint64_t kMinDupJunctionFlankBp = 200;
+
 struct PafRecord {
     std::string query_name;
     std::uint64_t query_length = 0;
@@ -81,6 +83,57 @@ alignment_detail::Interval query_oriented_interval(const PafRecord& record) {
 bool has_valid_intervals(const PafRecord& record) {
     return record.target_interval.start < record.target_interval.end &&
            record.query_interval.start < record.query_interval.end;
+}
+
+std::uint64_t terminal_exact_match_bp(const std::string& cigar,
+                                      const bool leading) {
+    std::uint64_t first_length = 0;
+    char first_op = '.';
+    std::uint64_t last_length = 0;
+    char last_op = '.';
+    std::size_t begin = 0;
+    while (begin < cigar.size()) {
+        std::size_t end = begin;
+        while (end < cigar.size() &&
+               std::isdigit(static_cast<unsigned char>(cigar[end]))) {
+            ++end;
+        }
+        if (end == begin || end >= cigar.size()) return 0;
+        const auto length = alignment_detail::parse_u64(
+            cigar.substr(begin, end - begin), "cigar_length");
+        if (first_op == '.') {
+            first_length = length;
+            first_op = cigar[end];
+        }
+        last_length = length;
+        last_op = cigar[end];
+        begin = end + 1;
+    }
+    if (leading) return first_op == '=' ? first_length : 0;
+    return last_op == '=' ? last_length : 0;
+}
+
+std::string trim_leading_exact_match(const std::string& cigar,
+                                     const std::uint64_t trim_bp) {
+    std::size_t end = 0;
+    while (end < cigar.size() &&
+           std::isdigit(static_cast<unsigned char>(cigar[end]))) {
+        ++end;
+    }
+    if (end == 0 || end >= cigar.size() || cigar[end] != '=') {
+        throw std::runtime_error("overlap DUP requires a leading exact match");
+    }
+    const auto length = alignment_detail::parse_u64(
+        cigar.substr(0, end), "cigar_length");
+    if (trim_bp > length) {
+        throw std::runtime_error("overlap DUP exceeds leading exact match");
+    }
+    std::string trimmed;
+    if (length > trim_bp) {
+        trimmed = std::to_string(length - trim_bp) + '=';
+    }
+    trimmed += cigar.substr(end + 1);
+    return trimmed;
 }
 
 std::optional<PafRecord> recover_terminal_exact_flank(
@@ -209,7 +262,6 @@ void normalize_paf_records(std::vector<PafRecord>& records,
         << "\tright_ref_start\tright_ref_end\tleft_query_start"
         << "\tleft_query_end\tright_query_start\tright_query_end"
         << "\tref_overlap\tquery_overlap\n";
-
     for (auto& [key, indices] : groups) {
         std::sort(indices.begin(), indices.end(),
                   [&records](const std::size_t left, const std::size_t right) {
@@ -226,6 +278,9 @@ void normalize_paf_records(std::vector<PafRecord>& records,
         for (std::size_t i = 1; i < indices.size(); ++i) {
             auto& left = records[indices[i - 1]];
             auto& right = records[indices[i]];
+            if (!has_valid_intervals(left) || !has_valid_intervals(right)) {
+                continue;
+            }
             const auto left_query_oriented = query_oriented_interval(left);
             const auto right_query_oriented = query_oriented_interval(right);
             const std::uint64_t ref_overlap =
@@ -242,11 +297,34 @@ void normalize_paf_records(std::vector<PafRecord>& records,
             const bool anchor_length_overlap =
                 (ref_overlap == parameters.anchor_length && query_overlap == 0) ||
                 (query_overlap == parameters.anchor_length && ref_overlap == 0);
+            const auto query_gap =
+                right_query_oriented.start > left_query_oriented.end
+                    ? right_query_oriented.start - left_query_oriented.end
+                    : 0;
+            const auto duplication_span = ref_overlap + query_gap;
+            const bool overlap_chain_duplication =
+                left.strand == '+' && ref_overlap >= parameters.anchor_length &&
+                query_overlap == 0 &&
+                query_gap <= 2ULL * parameters.patch_flank_bp &&
+                duplication_span <= parameters.max_patch_gap_bp &&
+                left.query_interval.end - left.query_interval.start >
+                    ref_overlap + parameters.patch_flank_bp &&
+                terminal_exact_match_bp(left.alignment.cigar, false) >=
+                    ref_overlap + parameters.patch_flank_bp &&
+                terminal_exact_match_bp(right.alignment.cigar, true) >=
+                    std::max<std::uint64_t>(
+                        kMinDupJunctionFlankBp, parameters.patch_flank_bp);
             const char* reason =
-                anchor_length_overlap ? "anchor_length_overlap" : "non_normalized_overlap";
+                overlap_chain_duplication
+                    ? "overlap_chain_duplication"
+                    : anchor_length_overlap
+                        ? "anchor_length_overlap"
+                        : "non_normalized_overlap";
             constexpr bool clip_left = true;
             const char* action =
-                anchor_length_overlap ? "clip_left" : "report_only";
+                overlap_chain_duplication
+                    ? "stitch_overlap_duplication"
+                    : anchor_length_overlap ? "clip_left" : "report_only";
 
             events << action << '\t' << reason << '\t' << left.target_name
                    << '\t' << left.query_name << '\t' << left.strand << '\t'
@@ -261,8 +339,28 @@ void normalize_paf_records(std::vector<PafRecord>& records,
                    << right.query_interval.end << '\t'
                    << ref_overlap << '\t' << query_overlap << '\n';
 
-            if (!anchor_length_overlap) {
+            if (!anchor_length_overlap && !overlap_chain_duplication) {
                 ++result.paf_normalization_unresolved_overlap_count;
+                continue;
+            }
+
+            if (overlap_chain_duplication) {
+                const auto right_cigar = trim_leading_exact_match(
+                    right.alignment.cigar, ref_overlap);
+                left.target_interval.end = right.target_interval.end;
+                left.query_interval.end = right.query_interval.end;
+                left.alignment.cigar +=
+                    std::to_string(duplication_span) + 'I' + right_cigar;
+                left.alignment.matches += right.alignment.matches - ref_overlap;
+                left.alignment.block_length +=
+                    right.alignment.block_length - ref_overlap + duplication_span;
+                left.alignment.score += right.alignment.score;
+                left.bundle_source = "overlap_chain_duplication";
+                left.alignment_mode = "cigar_stitch";
+                left.patch_count += right.patch_count + 1;
+                right.target_interval = {0, 0};
+                right.query_interval = {0, 0};
+                ++result.paf_normalization_clipped_block_count;
                 continue;
             }
 
@@ -302,6 +400,13 @@ void normalize_paf_records(std::vector<PafRecord>& records,
             ++result.paf_normalization_clipped_block_count;
         }
     }
+
+    records.erase(
+        std::remove_if(records.begin(), records.end(),
+                       [](const PafRecord& record) {
+                           return !has_valid_intervals(record);
+                       }),
+        records.end());
 
     for (auto& record : records) {
         if (!record.needs_realign) continue;

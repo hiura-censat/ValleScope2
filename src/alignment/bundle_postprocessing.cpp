@@ -67,6 +67,7 @@ struct PatchAttempt {
     std::uint64_t rescue_ref_offset = 0;
     std::uint64_t rescue_query_offset = 0;
     bool long_indel_rescue = false;
+    bool clean_multi_event_rescue = false;
     double left_endpoint_identity = 1.0;
     double right_endpoint_identity = 1.0;
     double max_short_error_density = 0.0;
@@ -528,6 +529,52 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
             rescue_index = i;
         }
     }
+    attempt.low_quality_cigar =
+        attempt.left_endpoint_identity < kMinPatchEndpointIdentity ||
+        attempt.right_endpoint_identity < kMinPatchEndpointIdentity ||
+        attempt.max_short_error_density > kMaxPatchShortErrorDensity;
+
+    if (attempt.rescue_long_indel_count > 1) {
+        bool all_insertions = true;
+        bool clean_segments = true;
+        std::uint64_t segment_aligned_bp = 0;
+        std::uint64_t segment_matches = 0;
+        std::uint64_t short_indel_bp = 0;
+        auto finish_segment = [&]() {
+            const auto identity = segment_aligned_bp == 0
+                ? 0.0
+                : static_cast<double>(segment_matches) /
+                      static_cast<double>(segment_aligned_bp);
+            if (segment_aligned_bp < kMinRescueFlankBp || identity < 1.0) {
+                clean_segments = false;
+            }
+            segment_aligned_bp = 0;
+            segment_matches = 0;
+        };
+        for (const auto& operation : operations) {
+            const bool long_indel =
+                (operation.op == 'I' || operation.op == 'D') &&
+                operation.length >= kMinRescueIndelBp;
+            if (long_indel) {
+                finish_segment();
+                all_insertions = all_insertions && operation.op == 'I';
+                continue;
+            }
+            segment_aligned_bp += operation.aligned_bp;
+            segment_matches += operation.matches;
+            if (operation.op == 'I' || operation.op == 'D') {
+                short_indel_bp += operation.length;
+            }
+        }
+        finish_segment();
+        attempt.rescue_extra_indel_bp = short_indel_bp;
+        attempt.clean_multi_event_rescue =
+            all_insertions && clean_segments &&
+            short_indel_bp == 0 &&
+            attempt.max_short_error_density == 0.0 &&
+            !attempt.low_quality_cigar;
+        return attempt;
+    }
     if (attempt.rescue_long_indel_count != 1) return attempt;
 
     attempt.rescue_indel_op = operations[rescue_index].op;
@@ -566,10 +613,6 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
         attempt.rescue_left_identity >= kMinRescueFlankIdentity &&
         attempt.rescue_right_identity >= kMinRescueFlankIdentity &&
         attempt.rescue_extra_indel_bp <= kMaxRescueExtraIndelBp;
-    attempt.low_quality_cigar =
-        attempt.left_endpoint_identity < kMinPatchEndpointIdentity ||
-        attempt.right_endpoint_identity < kMinPatchEndpointIdentity ||
-        attempt.max_short_error_density > kMaxPatchShortErrorDensity;
     return attempt;
 }
 
@@ -853,6 +896,9 @@ PatchAttempt align_patch_interval(faidx_t* index,
         if (attempt.identity >= 0.95) {
             attempt.classification = "patch_interval_wfa";
             attempt.merge = true;
+        } else if (attempt.clean_multi_event_rescue) {
+            attempt.classification = "patch_clean_multi_event_rescue";
+            attempt.merge = true;
         } else if (attempt.long_indel_rescue) {
             const bool extended_bundle =
                 left.source == "extended" || right.source == "extended";
@@ -947,6 +993,7 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
         << attempt.rescue_right_identity << '\t'
         << attempt.rescue_extra_indel_bp << '\t'
         << attempt.rescue_long_indel_count << '\t'
+        << (attempt.clean_multi_event_rescue ? 1 : 0) << '\t'
         << attempt.rescue_ref_offset << '\t'
         << attempt.rescue_query_offset << '\t'
         << attempt.left_endpoint_identity << '\t'
@@ -1006,6 +1053,7 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         << "\trescue_left_bp\trescue_right_bp"
         << "\trescue_left_identity\trescue_right_identity"
         << "\trescue_extra_indel_bp\trescue_long_indel_count"
+        << "\tclean_multi_event_rescue"
         << "\trescue_ref_offset\trescue_query_offset"
         << "\tleft_endpoint_identity\tright_endpoint_identity"
         << "\tmax_short_error_density\tlow_quality_cigar"
