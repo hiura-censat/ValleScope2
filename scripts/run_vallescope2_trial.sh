@@ -30,15 +30,17 @@ VALLESCOPE2_OPTS=("$@")
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-ENV_BIN="/home/senescence/miniconda3/envs/vallescope_dev/bin"
-DATA="data/test/chr1_alphaSat_1M_no_translocation"
-THREADS=8
+ENV_BIN="${VS2_TRIAL_ENV_BIN:-/home/senescence/miniconda3/envs/vallescope_dev/bin}"
+DATA="${VS2_TRIAL_SIM_DATA:-data/test/chr1_alphaSat_1M_no_translocation}"
+THREADS="${VS2_TRIAL_THREADS:-8}"
 
-RUN_NAME="${RUN_NAME_BASE}_no_translocation_$(date +%Y%m%d)"
-RESULT_DIR="results/simulation/${RUN_NAME}_type_harmonized"
-GFA="results/graphs/${RUN_NAME}.vallescope2.gfa"
-LOG_DIR="/tmp/claude-1001"
-mkdir -p "$LOG_DIR" results/graphs runs
+RUN_NAME="${VS2_TRIAL_EXACT_RUN_NAME:-${RUN_NAME_BASE}_no_translocation_$(date +%Y%m%d)}"
+GRAPH_DIR="${VS2_TRIAL_GRAPH_DIR:-results/graphs}"
+RUN_DIR="${VS2_TRIAL_RUN_DIR:-runs}"
+RESULT_DIR="${VS2_TRIAL_BENCHMARK_DIR:-results/simulation/${RUN_NAME}_type_harmonized}"
+GFA="${GRAPH_DIR}/${RUN_NAME}.vallescope2.gfa"
+LOG_DIR="${VS2_TRIAL_LOG_DIR:-/tmp/claude-1001}"
+mkdir -p "$LOG_DIR" "$GRAPH_DIR" "$RUN_DIR" "$(dirname "$RESULT_DIR")"
 
 echo "== vallescope2 trial: ${RUN_NAME} =="
 echo "options: ${VALLESCOPE2_OPTS[*]:-(none, defaults)}"
@@ -53,8 +55,8 @@ PATH="$ROOT/build:$ENV_BIN:$PATH" "$ENV_BIN/vsg-graph" construct \
     -f "$DATA/input_fastas_renamed/sample02.fa" \
     -f "$DATA/input_fastas_renamed/sample03.fa" \
     --name "$RUN_NAME" \
-    --output results/graphs \
-    --run-directory runs \
+    --output "$GRAPH_DIR" \
+    --run-directory "$RUN_DIR" \
     --aligner vallescope2 \
     --threads "$THREADS" \
     --aligner-extra "${VALLESCOPE2_OPTS[*]:-}" \
@@ -121,7 +123,8 @@ echo "== aggregate: ${aggregate} =="
 echo "== timing: construct=${construct_seconds}s benchmark=${bench_seconds}s total=$((construct_seconds + bench_seconds))s =="
 
 # --- Step 4: append to running comparison log --------------------------------
-SWEEP_LOG="results/vallescope2_option_trials.tsv"
+SWEEP_LOG="${VS2_TRIAL_SWEEP_LOG:-results/vallescope2_option_trials.tsv}"
+mkdir -p "$(dirname "$SWEEP_LOG")"
 if [[ ! -f "$SWEEP_LOG" ]]; then
     printf 'timestamp\trun_name\toptions\tconstruct_s\tbench_s\tTP\tFP\tFN\tP\tR\tF1\n' > "$SWEEP_LOG"
 fi

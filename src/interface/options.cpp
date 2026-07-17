@@ -54,6 +54,18 @@ void print_usage(std::ostream& output) {
            << "  --max-bundle-align-bp INT  Skip bundle alignments longer than this [1000000]\n"
            << "  --max-patch-gap-bp INT  Maximum adjacent bundle gap for patching [70000]\n"
            << "  --patch-flank-bp INT  Trusted flank size for patch interval WFA [500]\n"
+           << "  --min-patch-identity FLOAT  Global identity for direct patch acceptance [0.95]\n"
+           << "  --min-patch-long-indel-bp INT  Minimum long I/D size for rescue [500]\n"
+           << "  --min-patch-rescue-flank-bp INT  Minimum rescue flank/inter-event segment [200]\n"
+           << "  --min-patch-rescue-flank-identity FLOAT  Minimum single-event flank identity [0.95]\n"
+           << "  --max-patch-rescue-extra-indel-bp INT  Maximum other I/D bases in single-event rescue [100]\n"
+           << "  --patch-quality-window-bp INT  Window for endpoint and short-error quality [500]\n"
+           << "  --min-patch-endpoint-identity FLOAT  Minimum patch endpoint identity [0.85]\n"
+           << "  --max-patch-short-error-density FLOAT  Maximum local short-error density [0.15]\n"
+           << "  --min-patch-multi-segment-identity FLOAT  Minimum aligned-segment identity between long I/Ds [1.0]\n"
+           << "  --max-patch-multi-short-indel-bp INT  Maximum short I/D bases in multi-event rescue [0]\n"
+           << "  --max-patch-multi-short-error-density FLOAT  Maximum local short-error density in multi-event rescue [0]\n"
+           << "  --patch-multi-event-allow-deletions  Allow all-D as well as all-I clean multi-event rescue\n"
            << "  --max-wfa-memory-gb INT  WFA2 memory limit in GB [64]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
@@ -231,6 +243,41 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--patch-flank-bp")
             options.patch_flank_bp =
                 parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-patch-identity")
+            options.min_patch_identity =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--min-patch-long-indel-bp")
+            options.min_patch_long_indel_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-patch-rescue-flank-bp")
+            options.min_patch_rescue_flank_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-patch-rescue-flank-identity")
+            options.min_patch_rescue_flank_identity =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--max-patch-rescue-extra-indel-bp")
+            options.max_patch_rescue_extra_indel_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--patch-quality-window-bp")
+            options.patch_quality_window_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--min-patch-endpoint-identity")
+            options.min_patch_endpoint_identity =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--max-patch-short-error-density")
+            options.max_patch_short_error_density =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--min-patch-multi-segment-identity")
+            options.min_patch_multi_segment_identity =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--max-patch-multi-short-indel-bp")
+            options.max_patch_multi_short_indel_bp =
+                parse_unsigned(argc, argv, index, argument);
+        else if (argument == "--max-patch-multi-short-error-density")
+            options.max_patch_multi_short_error_density =
+                parse_double(argc, argv, index, argument);
+        else if (argument == "--patch-multi-event-allow-deletions")
+            options.patch_multi_event_allow_deletions = true;
         else if (argument == "--max-wfa-memory-gb")
             options.max_wfa_memory_gb =
                 parse_unsigned(argc, argv, index, argument);
@@ -292,6 +339,34 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("minimum chain extension anchor count must be greater than zero");
     if (options.patch_flank_bp == 0)
         throw std::runtime_error("patch flank size must be greater than zero");
+    if (options.min_patch_identity < 0.0 || options.min_patch_identity > 1.0)
+        throw std::runtime_error("minimum patch identity must be between 0 and 1");
+    if (options.min_patch_long_indel_bp == 0)
+        throw std::runtime_error("minimum patch long I/D size must be greater than zero");
+    if (options.min_patch_rescue_flank_bp == 0)
+        throw std::runtime_error("minimum patch rescue flank must be greater than zero");
+    if (options.min_patch_rescue_flank_identity < 0.0 ||
+        options.min_patch_rescue_flank_identity > 1.0)
+        throw std::runtime_error(
+            "minimum patch rescue flank identity must be between 0 and 1");
+    if (options.patch_quality_window_bp == 0)
+        throw std::runtime_error("patch quality window must be greater than zero");
+    if (options.min_patch_endpoint_identity < 0.0 ||
+        options.min_patch_endpoint_identity > 1.0)
+        throw std::runtime_error(
+            "minimum patch endpoint identity must be between 0 and 1");
+    if (options.max_patch_short_error_density < 0.0 ||
+        options.max_patch_short_error_density > 1.0)
+        throw std::runtime_error(
+            "maximum patch short-error density must be between 0 and 1");
+    if (options.min_patch_multi_segment_identity < 0.0 ||
+        options.min_patch_multi_segment_identity > 1.0)
+        throw std::runtime_error(
+            "minimum patch multi-segment identity must be between 0 and 1");
+    if (options.max_patch_multi_short_error_density < 0.0 ||
+        options.max_patch_multi_short_error_density > 1.0)
+        throw std::runtime_error(
+            "maximum patch multi short-error density must be between 0 and 1");
     if (options.max_wfa_memory_gb == 0)
         throw std::runtime_error("maximum WFA memory must be greater than zero");
     if (options.context_radius_tokens >

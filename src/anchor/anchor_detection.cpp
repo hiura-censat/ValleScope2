@@ -170,6 +170,29 @@ void run_anchor_detection(const ProgramOptions& options) {
         base_parameters.max_bundle_align_bp = options.max_bundle_align_bp;
         base_parameters.max_patch_gap_bp = options.max_patch_gap_bp;
         base_parameters.patch_flank_bp = options.patch_flank_bp;
+        base_parameters.min_patch_identity = options.min_patch_identity;
+        base_parameters.min_patch_long_indel_bp =
+            options.min_patch_long_indel_bp;
+        base_parameters.min_patch_rescue_flank_bp =
+            options.min_patch_rescue_flank_bp;
+        base_parameters.min_patch_rescue_flank_identity =
+            options.min_patch_rescue_flank_identity;
+        base_parameters.max_patch_rescue_extra_indel_bp =
+            options.max_patch_rescue_extra_indel_bp;
+        base_parameters.patch_quality_window_bp =
+            options.patch_quality_window_bp;
+        base_parameters.min_patch_endpoint_identity =
+            options.min_patch_endpoint_identity;
+        base_parameters.max_patch_short_error_density =
+            options.max_patch_short_error_density;
+        base_parameters.min_patch_multi_segment_identity =
+            options.min_patch_multi_segment_identity;
+        base_parameters.max_patch_multi_short_indel_bp =
+            options.max_patch_multi_short_indel_bp;
+        base_parameters.max_patch_multi_short_error_density =
+            options.max_patch_multi_short_error_density;
+        base_parameters.patch_multi_event_allow_deletions =
+            options.patch_multi_event_allow_deletions;
         base_parameters.max_wfa_memory_gb = options.max_wfa_memory_gb;
         base_parameters.bundle_trim_overlap = options.chaining.chain_trim_overlap;
         base_parameters.chain_extension = options.chain_extension;

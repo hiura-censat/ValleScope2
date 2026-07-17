@@ -186,6 +186,18 @@ Base-level bundle alignment:
 --max-bundle-align-bp INT          default: 1000000
 --max-patch-gap-bp INT            default: 70000
 --patch-flank-bp INT              default: 500
+--min-patch-identity FLOAT        default: 0.95
+--min-patch-long-indel-bp INT     default: 500
+--min-patch-rescue-flank-bp INT   default: 200
+--min-patch-rescue-flank-identity FLOAT default: 0.95
+--max-patch-rescue-extra-indel-bp INT   default: 100
+--patch-quality-window-bp INT      default: 500
+--min-patch-endpoint-identity FLOAT     default: 0.85
+--max-patch-short-error-density FLOAT   default: 0.15
+--min-patch-multi-segment-identity FLOAT default: 1.0
+--max-patch-multi-short-indel-bp INT    default: 0
+--max-patch-multi-short-error-density FLOAT default: 0
+--patch-multi-event-allow-deletions     default: off
 --max-wfa-memory-gb INT           default: 64
 ```
 
@@ -467,14 +479,72 @@ bundles, the query patch interval is reverse-complemented before alignment.
 The complete patch interval is aligned once with WFA2-lib end-to-end
 gap-affine-2-piece scoring using minimap2 asm5-style penalties:
 mismatch 19, gap open/extend 39/3 and 81/1. If this interval alignment
-has at least 0.95 global identity, the adjacent bundles are merged. A
+has at least `--min-patch-identity` global identity, the adjacent bundles are
+merged. A
 low-global-identity alignment is also accepted when its CIGAR contains exactly
-one long insertion or deletion of at least 500 bp, both aligned flanks are at
-least 200 bp with at least 0.95 identity, and all other insertions/deletions
-total at most 100 bp. The merged bundle is realigned later by the normal
+one long insertion or deletion of at least `--min-patch-long-indel-bp`, both
+aligned flanks are at least `--min-patch-rescue-flank-bp` with at least
+`--min-patch-rescue-flank-identity`, and all other insertions/deletions total
+at most `--max-patch-rescue-extra-indel-bp`. The merged bundle is realigned
+later by the normal
 anchor-guided base-alignment step. Debug `patch_intervals.tsv` records the
 long-indel rescue operation, length, flank lengths, flank identities, and
 extra-indel total.
+
+For multiple long I/D operations, every intervening aligned segment must be at
+least `--min-patch-rescue-flank-bp` with identity at least
+`--min-patch-multi-segment-identity`. By default only all-insertion CIGARs with
+no short I/D or local short errors are rescued. Use
+`--patch-multi-event-allow-deletions` to also allow all-deletion CIGARs;
+`--max-patch-multi-short-indel-bp` and
+`--max-patch-multi-short-error-density` control the corresponding multi-event
+quality limits.
+
+For example, the exploratory balanced multi-event settings are:
+
+```text
+--patch-multi-event-allow-deletions
+--min-patch-multi-segment-identity 0.99
+--max-patch-multi-short-indel-bp 100
+--max-patch-multi-short-error-density 0.15
+```
+
+### Reproducible dual-dataset parameter trials
+
+Run the same ValleScope2 options on the four-sequence CHM13 chr8
+alpha-satellite dataset and the four-sequence truth-bearing
+`chr1_alphaSat_1M_no_translocation` simulation with one command:
+
+```bash
+scripts/run_vallescope2_dual_trial.sh OUTPUT_NAME [vallescope2 options...]
+```
+
+For example:
+
+```bash
+scripts/run_vallescope2_dual_trial.sh chain_ratio_1p2 \
+  --chain-max-gap-ratio 1.2
+```
+
+Outputs are written under `results/parameter_trials/OUTPUT_NAME/`. The wrapper
+runs ValleScope2 plus PGGB on both datasets, calls
+`scripts/run_vallescope2_trial.sh` for the simulation truth benchmark, and
+writes `trial_summary.tsv`, input checksums, the exact command and options,
+all-to-all and reference-oriented PAFs, GFAs, logs, and full-length ribbon
+plots. Both the raw seqwish GFA and final PGGB GFA are benchmarked against the
+same simulation truth VCFs. Alpha-satellite coverage and gap counts are
+reported per sample. Ribbon
+coverage treats CIGAR I/D operations of at least 10 kbp as correspondence gaps;
+the summary reports all uncovered intervals and the subsets at least 1 kbp and
+10 kbp long. Existing output directories are never overwritten.
+
+Every completed run also appends one wide comparison row to
+`results/vallescope2_dual_option_trials.tsv`. This table records the exact
+options and git commit, alpha-satellite coverage and gap metrics for all three
+samples, simulation per-sample F1, aggregate TP/FP/FN/P/R/F1, and timing. Set
+`VS2_DUAL_SWEEP_LOG` to override the shared table path. Final PGGB metrics use
+the `simulation_*` columns and raw seqwish metrics use the `raw_seqwish_*`
+columns.
 
 Long-indel rescue candidates connected to a chain-extended bundle, or with a
 locally suspicious CIGAR, receive an additional segmented Z-drop check. The
@@ -482,9 +552,11 @@ primary long insertion/deletion is excluded from this check: ValleScope2 runs
 WFA2 Z-drop outward from both sides of the primary event (`zdrop=20`, cutoff
 every score step). After a partial prefix/suffix result, an exact merged-interval
 alignment is inspected for a clean prefix containing the primary long I/D and
-at least 200 bp of clean right flank. ValleScope2 retains that prefix as
-`patch_clean_prefix` and removes anchors beyond the first 500 bp window whose
-short-error density exceeds 0.15; if no clean prefix exists, it reports
+at least `--min-patch-rescue-flank-bp` of clean right flank. ValleScope2
+retains that prefix as
+`patch_clean_prefix` and removes anchors beyond the first quality window whose
+short-error density exceeds `--max-patch-short-error-density`; the window size
+is controlled by `--patch-quality-window-bp`. If no clean prefix exists, it reports
 `patch_zdrop_reject`.
 
 Z-drop events and opposite-strand gap blockers also trigger a small-inversion

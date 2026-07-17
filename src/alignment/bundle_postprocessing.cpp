@@ -107,15 +107,9 @@ struct PatchCigarOperation {
     std::uint64_t query_before = 0;
 };
 
-constexpr std::uint64_t kMinRescueIndelBp = 500;
-constexpr std::uint64_t kMinRescueFlankBp = 200;
-constexpr double kMinRescueFlankIdentity = 0.95;
-constexpr std::uint64_t kMaxRescueExtraIndelBp = 100;
-constexpr std::uint64_t kPatchQualityWindowBp = 500;
-constexpr double kMinPatchEndpointIdentity = 0.85;
-constexpr double kMaxPatchShortErrorDensity = 0.15;
 constexpr int kPatchZDrop = 20;
 constexpr int kPatchZDropSteps = 1;
+constexpr std::uint64_t kMinSmallInversionSpanBp = 200;
 constexpr std::uint64_t kMaxSmallInversionBp = 20000;
 constexpr double kMinSmallInversionIdentity = 0.90;
 constexpr double kSmallInversionIdentityMargin = 0.05;
@@ -373,7 +367,8 @@ void run_small_inversion_test(PatchAttempt& attempt,
                               const BaseAlignmentParameters& parameters) {
     const auto ref_span = interval_span(blocker.ref_start, blocker.ref_end);
     const auto query_span = interval_span(blocker.query_start, blocker.query_end);
-    if (ref_span < kMinRescueFlankBp || query_span < kMinRescueFlankBp ||
+    if (ref_span < kMinSmallInversionSpanBp ||
+        query_span < kMinSmallInversionSpanBp ||
         ref_span > kMaxSmallInversionBp || query_span > kMaxSmallInversionBp) {
         return;
     }
@@ -412,8 +407,9 @@ void run_small_inversion_test(PatchAttempt& attempt,
 }
 
 PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
-                                   const std::string& ref,
-                                   const std::string& query) {
+                                    const std::string& ref,
+                                    const std::string& query,
+                                    const BaseAlignmentParameters& parameters) {
     std::size_t ref_offset = 0;
     std::size_t query_offset = 0;
     std::vector<PatchCigarOperation> operations;
@@ -463,10 +459,11 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
             : static_cast<double>(attempt.matches) /
                   static_cast<double>(attempt.block_length);
 
-    auto segment_max_error_density = [](const std::vector<std::uint8_t>& errors) {
+    auto segment_max_error_density =
+        [&parameters](const std::vector<std::uint8_t>& errors) {
         if (errors.empty()) return 0.0;
-        const auto window = std::min<std::size_t>(kPatchQualityWindowBp,
-                                                  errors.size());
+        const auto window = std::min<std::size_t>(
+            parameters.patch_quality_window_bp, errors.size());
         std::uint64_t error_count = 0;
         for (std::size_t i = 0; i < window; ++i) error_count += errors[i];
         double maximum = static_cast<double>(error_count) /
@@ -479,14 +476,14 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
                 static_cast<double>(window));
         }
         return maximum;
-    };
+        };
     std::vector<std::uint8_t> short_error_segment;
     std::vector<std::uint8_t> left_endpoint;
     std::vector<std::uint8_t> right_endpoint;
     for (const auto& operation : operations) {
         const bool long_indel =
             (operation.op == 'I' || operation.op == 'D') &&
-            operation.length >= kMinRescueIndelBp;
+            operation.length >= parameters.min_patch_long_indel_bp;
         if (long_indel) {
             attempt.max_short_error_density = std::max(
                 attempt.max_short_error_density,
@@ -499,11 +496,11 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
                 operation.op == '=' ? 0 :
                 operation.op == 'M' && i < operation.matches ? 0 : 1);
             short_error_segment.push_back(error);
-            if (left_endpoint.size() < kPatchQualityWindowBp) {
+            if (left_endpoint.size() < parameters.patch_quality_window_bp) {
                 left_endpoint.push_back(error);
             }
             right_endpoint.push_back(error);
-            if (right_endpoint.size() > kPatchQualityWindowBp) {
+            if (right_endpoint.size() > parameters.patch_quality_window_bp) {
                 right_endpoint.erase(right_endpoint.begin());
             }
         }
@@ -524,18 +521,20 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
     for (std::size_t i = 0; i < operations.size(); ++i) {
         const auto& operation = operations[i];
         if ((operation.op == 'I' || operation.op == 'D') &&
-            operation.length >= kMinRescueIndelBp) {
+            operation.length >= parameters.min_patch_long_indel_bp) {
             ++attempt.rescue_long_indel_count;
             rescue_index = i;
         }
     }
     attempt.low_quality_cigar =
-        attempt.left_endpoint_identity < kMinPatchEndpointIdentity ||
-        attempt.right_endpoint_identity < kMinPatchEndpointIdentity ||
-        attempt.max_short_error_density > kMaxPatchShortErrorDensity;
+        attempt.left_endpoint_identity < parameters.min_patch_endpoint_identity ||
+        attempt.right_endpoint_identity < parameters.min_patch_endpoint_identity ||
+        attempt.max_short_error_density >
+            parameters.max_patch_short_error_density;
 
     if (attempt.rescue_long_indel_count > 1) {
         bool all_insertions = true;
+        bool all_deletions = true;
         bool clean_segments = true;
         std::uint64_t segment_aligned_bp = 0;
         std::uint64_t segment_matches = 0;
@@ -545,7 +544,8 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
                 ? 0.0
                 : static_cast<double>(segment_matches) /
                       static_cast<double>(segment_aligned_bp);
-            if (segment_aligned_bp < kMinRescueFlankBp || identity < 1.0) {
+            if (segment_aligned_bp < parameters.min_patch_rescue_flank_bp ||
+                identity < parameters.min_patch_multi_segment_identity) {
                 clean_segments = false;
             }
             segment_aligned_bp = 0;
@@ -554,10 +554,11 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
         for (const auto& operation : operations) {
             const bool long_indel =
                 (operation.op == 'I' || operation.op == 'D') &&
-                operation.length >= kMinRescueIndelBp;
+                operation.length >= parameters.min_patch_long_indel_bp;
             if (long_indel) {
                 finish_segment();
                 all_insertions = all_insertions && operation.op == 'I';
+                all_deletions = all_deletions && operation.op == 'D';
                 continue;
             }
             segment_aligned_bp += operation.aligned_bp;
@@ -569,10 +570,16 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
         finish_segment();
         attempt.rescue_extra_indel_bp = short_indel_bp;
         attempt.clean_multi_event_rescue =
-            all_insertions && clean_segments &&
-            short_indel_bp == 0 &&
-            attempt.max_short_error_density == 0.0 &&
-            !attempt.low_quality_cigar;
+            (all_insertions ||
+             (parameters.patch_multi_event_allow_deletions && all_deletions)) &&
+            clean_segments &&
+            short_indel_bp <= parameters.max_patch_multi_short_indel_bp &&
+            attempt.max_short_error_density <=
+                parameters.max_patch_multi_short_error_density &&
+            attempt.left_endpoint_identity >=
+                parameters.min_patch_endpoint_identity &&
+            attempt.right_endpoint_identity >=
+                parameters.min_patch_endpoint_identity;
         return attempt;
     }
     if (attempt.rescue_long_indel_count != 1) return attempt;
@@ -608,11 +615,14 @@ PatchAttempt summarize_patch_cigar(PatchAttempt attempt,
             : static_cast<double>(right_matches) /
                   static_cast<double>(attempt.rescue_right_bp);
     attempt.long_indel_rescue =
-        attempt.rescue_left_bp >= kMinRescueFlankBp &&
-        attempt.rescue_right_bp >= kMinRescueFlankBp &&
-        attempt.rescue_left_identity >= kMinRescueFlankIdentity &&
-        attempt.rescue_right_identity >= kMinRescueFlankIdentity &&
-        attempt.rescue_extra_indel_bp <= kMaxRescueExtraIndelBp;
+        attempt.rescue_left_bp >= parameters.min_patch_rescue_flank_bp &&
+        attempt.rescue_right_bp >= parameters.min_patch_rescue_flank_bp &&
+        attempt.rescue_left_identity >=
+            parameters.min_patch_rescue_flank_identity &&
+        attempt.rescue_right_identity >=
+            parameters.min_patch_rescue_flank_identity &&
+        attempt.rescue_extra_indel_bp <=
+            parameters.max_patch_rescue_extra_indel_bp;
     return attempt;
 }
 
@@ -747,7 +757,8 @@ bool retain_clean_prefix(PatchAttempt& attempt,
         }
         suffix_begin = suffix_end + 1;
     }
-    if (suffix_op == '=' && suffix_length >= kMinRescueFlankBp) {
+    if (suffix_op == '=' &&
+        suffix_length >= parameters.min_patch_rescue_flank_bp) {
         attempt.boundary_suffix = true;
         attempt.boundary_ref_start = ref_interval.start + suffix_ref_offset;
         attempt.boundary_ref_end = attempt.boundary_ref_start + suffix_length;
@@ -789,7 +800,8 @@ bool retain_clean_prefix(PatchAttempt& attempt,
             std::uint64_t columns = 0;
             std::uint64_t errors = 0;
             std::size_t scan = begin;
-            while (scan < cigar.size() && columns < kPatchQualityWindowBp) {
+            while (scan < cigar.size() &&
+                   columns < parameters.patch_quality_window_bp) {
                 std::size_t number_end = scan;
                 while (number_end < cigar.size() &&
                        std::isdigit(static_cast<unsigned char>(cigar[number_end]))) {
@@ -799,7 +811,7 @@ bool retain_clean_prefix(PatchAttempt& attempt,
                 const auto scan_length = parse_u64(
                     cigar.substr(scan, number_end - scan), "cigar_length");
                 const auto take = std::min<std::uint64_t>(
-                    scan_length, kPatchQualityWindowBp - columns);
+                    scan_length, parameters.patch_quality_window_bp - columns);
                 if (cigar[number_end] != '=') errors += take;
                 columns += take;
                 scan = number_end + 1;
@@ -807,8 +819,8 @@ bool retain_clean_prefix(PatchAttempt& attempt,
             const auto density = columns == 0
                 ? 0.0
                 : static_cast<double>(errors) / static_cast<double>(columns);
-            if (right_flank_bp >= kMinRescueFlankBp &&
-                density > kMaxPatchShortErrorDensity) {
+            if (right_flank_bp >= parameters.min_patch_rescue_flank_bp &&
+                density > parameters.max_patch_short_error_density) {
                 break;
             }
         }
@@ -827,7 +839,8 @@ bool retain_clean_prefix(PatchAttempt& attempt,
         }
         begin = end + 1;
     }
-    if (!found_primary || right_flank_bp < kMinRescueFlankBp ||
+    if (!found_primary ||
+        right_flank_bp < parameters.min_patch_rescue_flank_bp ||
         ref_offset >= ref.size() || query_offset >= query.size()) {
         return false;
     }
@@ -892,8 +905,9 @@ PatchAttempt align_patch_interval(faidx_t* index,
         }
         attempt.cigar = aligner.getCIGAR(true);
         attempt.score = aligner.getAlignmentScore();
-        attempt = summarize_patch_cigar(std::move(attempt), ref, query);
-        if (attempt.identity >= 0.95) {
+        attempt = summarize_patch_cigar(
+            std::move(attempt), ref, query, parameters);
+        if (attempt.identity >= parameters.min_patch_identity) {
             attempt.classification = "patch_interval_wfa";
             attempt.merge = true;
         } else if (attempt.clean_multi_event_rescue) {
