@@ -474,7 +474,9 @@ alignment.
 Before WFA2 alignment, adjacent bundles on the same sample pair, sequence pair,
 and strand are tested for gap patching. If both the ref and query gaps are at
 most `--max-patch-gap-bp`, ValleScope2 builds a single patch interval spanning
-the gap plus trusted flanks (`--patch-flank-bp`) on both sides. For `-` strand
+the gap plus trusted flanks (`--patch-flank-bp`) on both sides. Set the flank
+size to `0` for gap-only alignment; an interval with a zero-length gap on either
+axis cannot be aligned without flanks. For `-` strand
 bundles, the query patch interval is reverse-complemented before alignment.
 The complete patch interval is aligned once with WFA2-lib end-to-end
 gap-affine-2-piece scoring using minimap2 asm5-style penalties:
@@ -490,6 +492,14 @@ later by the normal
 anchor-guided base-alignment step. Debug `patch_intervals.tsv` records the
 long-indel rescue operation, length, flank lengths, flank identities, and
 extra-indel total.
+
+If the flank-inclusive alignment is rejected because its only long I/D was
+placed at a CIGAR boundary, ValleScope2 realigns the two unflanked inter-chain
+gaps. This fallback is accepted as `patch_terminal_indel_gap_rescue` only when
+the gap-only CIGAR contains one long I/D in the direction and length implied by
+the gap-size difference, while the remaining aligned sequence passes the
+single-event identity, extra-I/D, and short-error limits. The debug table keeps
+the original CIGAR and identity in `primary_cigar` and `primary_identity`.
 
 For multiple long I/D operations, every intervening aligned segment must be at
 least `--min-patch-rescue-flank-bp` with identity at least
@@ -545,6 +555,20 @@ samples, simulation per-sample F1, aggregate TP/FP/FN/P/R/F1, and timing. Set
 `VS2_DUAL_SWEEP_LOG` to override the shared table path. Final PGGB metrics use
 the `simulation_*` columns and raw seqwish metrics use the `raw_seqwish_*`
 columns.
+
+Sweep all Base-level bundle alignment parameters one at a time with two
+non-default values per numeric option:
+
+```bash
+scripts/run_vallescope2_base_alignment_parameter_trials.sh PREFIX
+```
+
+The sweep calls `scripts/run_vallescope2_dual_trial.sh` for every trial, skips
+already completed output directories, continues after individual failures,
+and writes every completed result to the shared comparison TSV. Use
+`VS2_SWEEP_DRY_RUN=1` to inspect all generated commands without running them.
+`--no-base-align` is intentionally excluded because the dual workflow requires
+a PAF and GFA for coverage and truth benchmarking.
 
 Long-indel rescue candidates connected to a chain-extended bundle, or with a
 locally suspicious CIGAR, receive an additional segmented Z-drop check. The

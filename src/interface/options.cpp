@@ -337,8 +337,6 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         throw std::runtime_error("maximum chain extension length must be greater than zero");
     if (options.min_chain_extension_anchors == 0)
         throw std::runtime_error("minimum chain extension anchor count must be greater than zero");
-    if (options.patch_flank_bp == 0)
-        throw std::runtime_error("patch flank size must be greater than zero");
     if (options.min_patch_identity < 0.0 || options.min_patch_identity > 1.0)
         throw std::runtime_error("minimum patch identity must be between 0 and 1");
     if (options.min_patch_long_indel_bp == 0)

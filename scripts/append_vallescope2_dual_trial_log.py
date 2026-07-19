@@ -27,7 +27,7 @@ def read_key_values(path):
 
 def field_names():
     fields = [
-        "timestamp", "output_name", "output_dir", "git_commit", "options",
+        "timestamp", "output_name", "git_commit", "options",
         "alpha_construct_seconds", "simulation_total_seconds",
     ]
     for sample in ALPHA_SAMPLES:
@@ -61,7 +61,6 @@ def main():
     row.update({
         "timestamp": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "output_name": args.trial_dir.name,
-        "output_dir": str(args.trial_dir.resolve()),
         "git_commit": (args.trial_dir / "git_commit.txt").read_text().strip(),
         "options": metadata["options"],
         "alpha_construct_seconds": metadata["alpha_construct_seconds"],
@@ -91,7 +90,8 @@ def main():
         reader = csv.DictReader(handle, delimiter="\t")
         existing_header = reader.fieldnames or []
         existing_rows = list(reader)
-        unknown_fields = set(existing_header) - set(field_names())
+        deprecated_fields = {"output_dir"}
+        unknown_fields = set(existing_header) - set(field_names()) - deprecated_fields
         if unknown_fields:
             raise RuntimeError(
                 f"existing sweep log has unknown columns: {sorted(unknown_fields)}")
@@ -103,9 +103,6 @@ def main():
         for index, existing in enumerate(existing_rows):
             if existing["output_name"] != row["output_name"]:
                 continue
-            if existing["output_dir"] != row["output_dir"]:
-                raise RuntimeError(
-                    f"output name already belongs to another directory: {row['output_name']}")
             row["timestamp"] = existing["timestamp"]
             existing_rows[index] = row
             replaced = True

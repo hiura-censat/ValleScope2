@@ -178,7 +178,6 @@ echo "raw seqwish benchmark: ok (${raw_benchmark_seconds}s)"
 
 {
     printf 'metric\tvalue\n'
-    printf 'output_dir\t%s\n' "$OUTPUT_DIR"
     printf 'threads\t%s\n' "$THREADS"
     printf 'options\t%s\n' "${VALLESCOPE2_OPTS[*]:-(default)}"
     printf 'alpha_construct_seconds\t%s\n' "$alpha_seconds"

@@ -68,6 +68,10 @@ struct PatchAttempt {
     std::uint64_t rescue_query_offset = 0;
     bool long_indel_rescue = false;
     bool clean_multi_event_rescue = false;
+    bool terminal_gap_fallback_checked = false;
+    bool terminal_gap_fallback_accepted = false;
+    double primary_identity = 1.0;
+    std::string primary_cigar;
     double left_endpoint_identity = 1.0;
     double right_endpoint_identity = 1.0;
     double max_short_error_density = 0.0;
@@ -934,8 +938,92 @@ PatchAttempt align_patch_interval(faidx_t* index,
                 attempt.merge = true;
             }
         } else {
-            attempt.classification = "patch_interval_low_identity";
-            attempt.merge = false;
+            const bool terminal_long_indel =
+                attempt.rescue_long_indel_count == 1 &&
+                (attempt.rescue_left_bp == 0 || attempt.rescue_right_bp == 0);
+            if (terminal_long_indel && parameters.patch_flank_bp > 0 &&
+                attempt.ref_gap > 0 && attempt.query_gap > 0) {
+                const auto primary_identity = attempt.identity;
+                auto primary_cigar = attempt.cigar;
+                attempt.terminal_gap_fallback_checked = true;
+                const Interval gap_ref_interval{left.ref_end, right.ref_start};
+                const auto gap_query_interval = query_gap_interval(left, right);
+                const auto gap_ref = fetch_interval(
+                    index, left.sequence_a, gap_ref_interval);
+                const auto gap_query = fetch_patch_query(
+                    index, left.sequence_b, gap_query_interval, left.strand);
+                try {
+                    wfa::WFAlignerGapAffine2Pieces gap_aligner(
+                        19, 39, 3, 81, 1,
+                        wfa::WFAligner::Alignment,
+                        wfa::WFAligner::MemoryHigh);
+                    const auto max_memory =
+                        static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) *
+                        1024ULL * 1024ULL * 1024ULL;
+                    gap_aligner.setMaxMemory(max_memory, max_memory);
+                    const auto gap_status =
+                        gap_aligner.alignEnd2End(gap_ref, gap_query);
+                    if (gap_status >= 0) {
+                        PatchAttempt fallback;
+                        fallback.ref_gap = attempt.ref_gap;
+                        fallback.query_gap = attempt.query_gap;
+                        fallback.ref_interval = gap_ref_interval;
+                        fallback.query_interval = gap_query_interval;
+                        fallback.cigar = gap_aligner.getCIGAR(true);
+                        fallback.score = gap_aligner.getAlignmentScore();
+                        fallback = summarize_patch_cigar(
+                            std::move(fallback), gap_ref, gap_query, parameters);
+
+                        const auto aligned_bp =
+                            fallback.rescue_left_bp + fallback.rescue_right_bp;
+                        const auto aligned_matches =
+                            fallback.rescue_left_identity *
+                                static_cast<double>(fallback.rescue_left_bp) +
+                            fallback.rescue_right_identity *
+                                static_cast<double>(fallback.rescue_right_bp);
+                        const auto aligned_identity = aligned_bp == 0
+                            ? 0.0
+                            : aligned_matches / static_cast<double>(aligned_bp);
+                        const auto gap_difference =
+                            attempt.query_gap > attempt.ref_gap
+                                ? attempt.query_gap - attempt.ref_gap
+                                : attempt.ref_gap - attempt.query_gap;
+                        const auto expected_op =
+                            attempt.query_gap > attempt.ref_gap ? 'I' : 'D';
+                        const auto indel_length_error =
+                            fallback.rescue_indel_len > gap_difference
+                                ? fallback.rescue_indel_len - gap_difference
+                                : gap_difference - fallback.rescue_indel_len;
+                        const bool clean_gap_indel =
+                            fallback.rescue_long_indel_count == 1 &&
+                            fallback.rescue_indel_op == expected_op &&
+                            aligned_bp > 0 &&
+                            aligned_identity >=
+                                parameters.min_patch_rescue_flank_identity &&
+                            fallback.rescue_extra_indel_bp <=
+                                parameters.max_patch_rescue_extra_indel_bp &&
+                            indel_length_error <=
+                                parameters.max_patch_rescue_extra_indel_bp &&
+                            fallback.max_short_error_density <=
+                                parameters.max_patch_short_error_density;
+                        if (clean_gap_indel) {
+                            fallback.classification =
+                                "patch_terminal_indel_gap_rescue";
+                            fallback.merge = true;
+                            fallback.terminal_gap_fallback_accepted = true;
+                            attempt = std::move(fallback);
+                        }
+                    }
+                } catch (const std::exception&) {
+                    // Keep the primary rejection when the fallback cannot run.
+                }
+                attempt.terminal_gap_fallback_checked = true;
+                attempt.primary_identity = primary_identity;
+                attempt.primary_cigar = std::move(primary_cigar);
+            }
+            if (!attempt.merge) {
+                attempt.classification = "patch_interval_low_identity";
+            }
         }
     } catch (const std::exception&) {
         attempt.classification = "patch_wfa_failed";
@@ -1008,6 +1096,10 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
         << attempt.rescue_extra_indel_bp << '\t'
         << attempt.rescue_long_indel_count << '\t'
         << (attempt.clean_multi_event_rescue ? 1 : 0) << '\t'
+        << (attempt.terminal_gap_fallback_checked ? 1 : 0) << '\t'
+        << (attempt.terminal_gap_fallback_accepted ? 1 : 0) << '\t'
+        << attempt.primary_identity << '\t'
+        << attempt.primary_cigar << '\t'
         << attempt.rescue_ref_offset << '\t'
         << attempt.rescue_query_offset << '\t'
         << attempt.left_endpoint_identity << '\t'
@@ -1068,6 +1160,9 @@ std::vector<ChainBundle> patch_adjacent_bundles(
         << "\trescue_left_identity\trescue_right_identity"
         << "\trescue_extra_indel_bp\trescue_long_indel_count"
         << "\tclean_multi_event_rescue"
+        << "\tterminal_gap_fallback_checked"
+        << "\tterminal_gap_fallback_accepted"
+        << "\tprimary_identity\tprimary_cigar"
         << "\trescue_ref_offset\trescue_query_offset"
         << "\tleft_endpoint_identity\tright_endpoint_identity"
         << "\tmax_short_error_density\tlow_quality_cigar"
