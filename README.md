@@ -194,10 +194,13 @@ Base-level bundle alignment:
 --patch-quality-window-bp INT      default: 500
 --min-patch-endpoint-identity FLOAT     default: 0.85
 --max-patch-short-error-density FLOAT   default: 0.15
---min-patch-multi-segment-identity FLOAT default: 1.0
---max-patch-multi-short-indel-bp INT    default: 0
---max-patch-multi-short-error-density FLOAT default: 0
---patch-multi-event-allow-deletions     default: off
+--min-patch-multi-segment-identity FLOAT default: 0.99
+--max-patch-multi-short-indel-bp INT    default: 100
+--max-patch-multi-short-error-density FLOAT default: 0.15
+--patch-multi-event-allow-deletions     default: on
+--no-patch-multi-event-allow-deletions
+--patch-zdrop                           default: off
+--no-patch-zdrop
 --max-wfa-memory-gb INT           default: 64
 ```
 
@@ -501,22 +504,26 @@ the gap-size difference, while the remaining aligned sequence passes the
 single-event identity, extra-I/D, and short-error limits. The debug table keeps
 the original CIGAR and identity in `primary_cigar` and `primary_identity`.
 
+Z-drop validation of suspicious or chain-extended single-long-I/D patches is
+disabled by default. Use `--patch-zdrop` to enable this validation and
+`--no-patch-zdrop` to disable it explicitly.
+
 For multiple long I/D operations, every intervening aligned segment must be at
 least `--min-patch-rescue-flank-bp` with identity at least
-`--min-patch-multi-segment-identity`. By default only all-insertion CIGARs with
-no short I/D or local short errors are rescued. Use
-`--patch-multi-event-allow-deletions` to also allow all-deletion CIGARs;
-`--max-patch-multi-short-indel-bp` and
+`--min-patch-multi-segment-identity`. All-insertion and all-deletion CIGARs are
+rescued by default; use `--no-patch-multi-event-allow-deletions` to restrict
+this to all-insertion CIGARs. `--max-patch-multi-short-indel-bp` and
 `--max-patch-multi-short-error-density` control the corresponding multi-event
 quality limits.
 
-For example, the exploratory balanced multi-event settings are:
+The default balanced multi-event settings are:
 
 ```text
 --patch-multi-event-allow-deletions
 --min-patch-multi-segment-identity 0.99
 --max-patch-multi-short-indel-bp 100
 --max-patch-multi-short-error-density 0.15
+--no-patch-zdrop
 ```
 
 ### Reproducible dual-dataset parameter trials

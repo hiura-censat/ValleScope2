@@ -52,6 +52,8 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"patch_multi_event_allow_deletions\": "
            << (parameters.patch_multi_event_allow_deletions ? "true" : "false")
            << ",\n"
+           << "  \"patch_zdrop\": "
+           << (parameters.patch_zdrop ? "true" : "false") << ",\n"
            << "  \"max_wfa_memory_gb\": " << parameters.max_wfa_memory_gb << ",\n"
            << "  \"bundle_trim_overlap\": " << parameters.bundle_trim_overlap << ",\n"
            << "  \"chain_extension\": "

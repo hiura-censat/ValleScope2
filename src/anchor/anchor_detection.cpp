@@ -193,6 +193,7 @@ void run_anchor_detection(const ProgramOptions& options) {
             options.max_patch_multi_short_error_density;
         base_parameters.patch_multi_event_allow_deletions =
             options.patch_multi_event_allow_deletions;
+        base_parameters.patch_zdrop = options.patch_zdrop;
         base_parameters.max_wfa_memory_gb = options.max_wfa_memory_gb;
         base_parameters.bundle_trim_overlap = options.chaining.chain_trim_overlap;
         base_parameters.chain_extension = options.chain_extension;

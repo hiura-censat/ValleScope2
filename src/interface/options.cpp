@@ -62,10 +62,13 @@ void print_usage(std::ostream& output) {
            << "  --patch-quality-window-bp INT  Window for endpoint and short-error quality [500]\n"
            << "  --min-patch-endpoint-identity FLOAT  Minimum patch endpoint identity [0.85]\n"
            << "  --max-patch-short-error-density FLOAT  Maximum local short-error density [0.15]\n"
-           << "  --min-patch-multi-segment-identity FLOAT  Minimum aligned-segment identity between long I/Ds [1.0]\n"
-           << "  --max-patch-multi-short-indel-bp INT  Maximum short I/D bases in multi-event rescue [0]\n"
-           << "  --max-patch-multi-short-error-density FLOAT  Maximum local short-error density in multi-event rescue [0]\n"
-           << "  --patch-multi-event-allow-deletions  Allow all-D as well as all-I clean multi-event rescue\n"
+           << "  --min-patch-multi-segment-identity FLOAT  Minimum aligned-segment identity between long I/Ds [0.99]\n"
+           << "  --max-patch-multi-short-indel-bp INT  Maximum short I/D bases in multi-event rescue [100]\n"
+           << "  --max-patch-multi-short-error-density FLOAT  Maximum local short-error density in multi-event rescue [0.15]\n"
+           << "  --patch-multi-event-allow-deletions  Allow all-D as well as all-I clean multi-event rescue [default]\n"
+           << "  --no-patch-multi-event-allow-deletions  Restrict clean multi-event rescue to all-I CIGARs\n"
+           << "  --patch-zdrop  Validate suspicious long-I/D patches with Z-drop\n"
+           << "  --no-patch-zdrop  Disable Z-drop validation of long-I/D patches [default]\n"
            << "  --max-wfa-memory-gb INT  WFA2 memory limit in GB [64]\n"
            << "  -t, --threads INT  Number of GenMap threads [20]\n"
            << "  --genmap PATH  GenMap executable [genmap]\n"
@@ -157,6 +160,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
         else if (argument == "--no-base-align") options.base_align = false;
         else if (argument == "--chain-extension") options.chain_extension = true;
         else if (argument == "--no-chain-extension") options.chain_extension = false;
+        else if (argument == "--patch-zdrop") options.patch_zdrop = true;
+        else if (argument == "--no-patch-zdrop") options.patch_zdrop = false;
         else if (argument == "--dump-window-scores") options.dump_window_scores = true;
         else if (argument == "-K" || argument == "--kmer-length")
             options.genmap.kmer_length = parse_unsigned(argc, argv, index, argument);
@@ -278,6 +283,8 @@ ProgramOptions parse_arguments(const int argc, char* argv[]) {
                 parse_double(argc, argv, index, argument);
         else if (argument == "--patch-multi-event-allow-deletions")
             options.patch_multi_event_allow_deletions = true;
+        else if (argument == "--no-patch-multi-event-allow-deletions")
+            options.patch_multi_event_allow_deletions = false;
         else if (argument == "--max-wfa-memory-gb")
             options.max_wfa_memory_gb =
                 parse_unsigned(argc, argv, index, argument);

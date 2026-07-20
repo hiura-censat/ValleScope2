@@ -920,7 +920,8 @@ PatchAttempt align_patch_interval(faidx_t* index,
         } else if (attempt.long_indel_rescue) {
             const bool extended_bundle =
                 left.source == "extended" || right.source == "extended";
-            if (attempt.low_quality_cigar || extended_bundle) {
+            if (parameters.patch_zdrop &&
+                (attempt.low_quality_cigar || extended_bundle)) {
                 validate_patch_with_zdrop(
                     attempt, index, left, right, parameters);
             }

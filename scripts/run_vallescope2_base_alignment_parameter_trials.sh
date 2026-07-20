@@ -93,14 +93,17 @@ run_trial min-patch-endpoint-identity0p95 --min-patch-endpoint-identity 0.95
 run_trial max-patch-short-error-density0p05 --max-patch-short-error-density 0.05
 run_trial max-patch-short-error-density0p25 --max-patch-short-error-density 0.25
 
-# Clean multi-event rescue (defaults: I-only, segment identity 1.0, no errors)
-run_trial patch-multi-event-allow-deletions --patch-multi-event-allow-deletions
+# Clean multi-event rescue (defaults: I/D, identity 0.99, 100 bp, density 0.15)
+run_trial no-patch-multi-event-allow-deletions --no-patch-multi-event-allow-deletions
 run_trial min-patch-multi-segment-identity0p95 --min-patch-multi-segment-identity 0.95
-run_trial min-patch-multi-segment-identity0p99 --min-patch-multi-segment-identity 0.99
-run_trial max-patch-multi-short-indel-bp100 --max-patch-multi-short-indel-bp 100
+run_trial min-patch-multi-segment-identity1p0 --min-patch-multi-segment-identity 1.0
+run_trial max-patch-multi-short-indel-bp0 --max-patch-multi-short-indel-bp 0
 run_trial max-patch-multi-short-indel-bp500 --max-patch-multi-short-indel-bp 500
 run_trial max-patch-multi-short-error-density0p05 --max-patch-multi-short-error-density 0.05
-run_trial max-patch-multi-short-error-density0p15 --max-patch-multi-short-error-density 0.15
+run_trial max-patch-multi-short-error-density0p25 --max-patch-multi-short-error-density 0.25
+
+# Long-I/D Z-drop validation (default: off)
+run_trial patch-zdrop --patch-zdrop
 
 # WFA resource ceiling (default: 64 GB)
 run_trial max-wfa-memory-gb16 --max-wfa-memory-gb 16
