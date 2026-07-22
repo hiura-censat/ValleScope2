@@ -14,8 +14,8 @@ struct BaseAlignmentParameters {
     std::uint64_t max_fallback_cells = 25000000;
     std::uint32_t max_patch_gap_bp = 70000;
     std::uint32_t patch_flank_bp = 500;
-    double min_patch_identity = 0.95;
-    std::uint32_t min_patch_long_indel_bp = 500;
+    double min_patch_identity = 0.90;
+    std::uint32_t min_patch_long_indel_bp = 100;
     std::uint32_t min_patch_rescue_flank_bp = 200;
     double min_patch_rescue_flank_identity = 0.95;
     std::uint32_t max_patch_rescue_extra_indel_bp = 100;
@@ -31,7 +31,7 @@ struct BaseAlignmentParameters {
     double bundle_trim_overlap = 0.01;
     bool chain_extension = true;
     std::uint32_t chain_extension_predecessors = 50;
-    std::uint32_t max_chain_extension_bp = 70000;
+    std::uint32_t max_chain_extension_bp = 1000000;
     std::uint32_t max_chain_gap = 300;
     double chain_max_gap_ratio = 1.05;
     GapCostModel gap_cost_model = GapCostModel::absolute;

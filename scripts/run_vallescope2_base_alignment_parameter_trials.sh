@@ -56,10 +56,10 @@ run_trial() {
     fi
 }
 
-# Chain extension (default: on, 70000 bp, 5 anchors, score 100, copy support 1)
+# Chain extension (default: on, 1000000 bp, 5 anchors, score 100, copy support 1)
 run_trial no-chain-extension --no-chain-extension
-run_trial max-chain-extension-bp20000 --max-chain-extension-bp 20000
 run_trial max-chain-extension-bp150000 --max-chain-extension-bp 150000
+run_trial max-chain-extension-bp2000000 --max-chain-extension-bp 2000000
 run_trial min-chain-extension-anchors2 --min-chain-extension-anchors 2
 run_trial min-chain-extension-anchors10 --min-chain-extension-anchors 10
 run_trial min-chain-extension-score25 --min-chain-extension-score 25
@@ -76,10 +76,10 @@ run_trial patch-flank-bp200 --patch-flank-bp 200
 run_trial patch-flank-bp2000 --patch-flank-bp 2000
 
 # Direct patch and long-I/D rescue quality
-run_trial min-patch-identity0p90 --min-patch-identity 0.90
+run_trial min-patch-identity0p85 --min-patch-identity 0.85
 run_trial min-patch-identity0p98 --min-patch-identity 0.98
-run_trial min-patch-long-indel-bp250 --min-patch-long-indel-bp 250
-run_trial min-patch-long-indel-bp1000 --min-patch-long-indel-bp 1000
+run_trial min-patch-long-indel-bp50 --min-patch-long-indel-bp 50
+run_trial min-patch-long-indel-bp500 --min-patch-long-indel-bp 500
 run_trial min-patch-rescue-flank-bp100 --min-patch-rescue-flank-bp 100
 run_trial min-patch-rescue-flank-bp500 --min-patch-rescue-flank-bp 500
 run_trial min-patch-rescue-flank-identity0p90 --min-patch-rescue-flank-identity 0.90
