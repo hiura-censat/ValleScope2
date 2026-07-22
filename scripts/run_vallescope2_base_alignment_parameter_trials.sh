@@ -70,8 +70,8 @@ run_trial min-copy-support-anchors5 --min-copy-support-anchors 5
 # Bundle and patch interval bounds
 run_trial max-bundle-align-bp200000 --max-bundle-align-bp 200000
 run_trial max-bundle-align-bp2000000 --max-bundle-align-bp 2000000
-run_trial max-patch-gap-bp20000 --max-patch-gap-bp 20000
 run_trial max-patch-gap-bp150000 --max-patch-gap-bp 150000
+run_trial max-patch-gap-bp2000000 --max-patch-gap-bp 2000000
 run_trial patch-flank-bp200 --patch-flank-bp 200
 run_trial patch-flank-bp2000 --patch-flank-bp 2000
 

@@ -59,7 +59,7 @@ run_trial() {
 
 # Current patch-related defaults used as the baseline:
 #   chain extension: 1000000 bp, 5 anchors, score 100
-#   max patch gap: 70000 bp; patch flank: 500 bp
+#   max patch gap: 1000000 bp; patch flank: 500 bp
 #   direct identity: 0.90; long I/D: 100 bp
 #   single rescue: flank 200 bp / identity 0.95 / extra I/D 100 bp
 #   endpoint identity: 0.85; short-error density: 0.15
@@ -79,8 +79,8 @@ run_trial min-chain-extension-score50 --min-chain-extension-score 50
 run_trial min-chain-extension-score25 --min-chain-extension-score 25
 
 # Attempt larger unresolved intervals and permit larger final bundle alignment.
-run_trial max-patch-gap-bp100000 --max-patch-gap-bp 100000
-run_trial max-patch-gap-bp150000 --max-patch-gap-bp 150000
+run_trial max-patch-gap-bp1500000 --max-patch-gap-bp 1500000
+run_trial max-patch-gap-bp2000000 --max-patch-gap-bp 2000000
 run_trial max-bundle-align-bp1500000 --max-bundle-align-bp 1500000
 run_trial max-bundle-align-bp2000000 --max-bundle-align-bp 2000000
 
@@ -121,7 +121,7 @@ run_trial max-patch-multi-short-error-density0p25 --max-patch-multi-short-error-
 # ---------------------------------------------------------------------------
 
 run_trial profile-balanced \
-    --max-patch-gap-bp 100000 \
+    --max-patch-gap-bp 1500000 \
     --min-patch-identity 0.85 \
     --min-patch-rescue-flank-bp 100 \
     --min-patch-rescue-flank-identity 0.90 \
@@ -134,7 +134,7 @@ run_trial profile-permissive \
     --max-chain-extension-bp 2000000 \
     --min-chain-extension-anchors 3 \
     --min-chain-extension-score 50 \
-    --max-patch-gap-bp 150000 \
+    --max-patch-gap-bp 2000000 \
     --max-bundle-align-bp 2000000 \
     --min-patch-identity 0.80 \
     --min-patch-long-indel-bp 50 \

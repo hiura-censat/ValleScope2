@@ -939,9 +939,22 @@ PatchAttempt align_patch_interval(faidx_t* index,
                 attempt.merge = true;
             }
         } else {
-            const bool terminal_long_indel =
+            const bool exact_terminal_long_indel =
                 attempt.rescue_long_indel_count == 1 &&
                 (attempt.rescue_left_bp == 0 || attempt.rescue_right_bp == 0);
+            const auto patch_gap_difference =
+                attempt.query_gap > attempt.ref_gap
+                    ? attempt.query_gap - attempt.ref_gap
+                    : attempt.ref_gap - attempt.query_gap;
+            const bool near_terminal_long_indel =
+                attempt.rescue_long_indel_count == 1 &&
+                (attempt.rescue_left_bp <
+                     parameters.min_patch_rescue_flank_bp ||
+                 attempt.rescue_right_bp <
+                     parameters.min_patch_rescue_flank_bp) &&
+                patch_gap_difference > 2ULL * parameters.patch_flank_bp;
+            const bool terminal_long_indel =
+                exact_terminal_long_indel || near_terminal_long_indel;
             if (terminal_long_indel && parameters.patch_flank_bp > 0 &&
                 attempt.ref_gap > 0 && attempt.query_gap > 0) {
                 const auto primary_identity = attempt.identity;
