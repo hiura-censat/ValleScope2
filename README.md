@@ -183,7 +183,7 @@ Base-level bundle alignment:
 --min-chain-extension-anchors INT default: 5
 --min-chain-extension-score FLOAT default: 100
 --min-copy-support-anchors INT    default: 1
---max-bundle-align-bp INT          default: 1000000
+--max-bundle-align-bp INT          default: 5000000
 --max-patch-gap-bp INT            default: 1000000
 --patch-flank-bp INT              default: 500
 --min-patch-identity FLOAT        default: 0.90

@@ -345,37 +345,36 @@ const Occurrence* lookup_occurrence(const FrequencyMap& frequency,
 }
 
 std::vector<TMus> find_tmus(const Corpus& corpus, const std::uint32_t maximum_length) {
-    std::vector<FrequencyMap> frequencies(corpus.samples.size());
-    for (std::uint32_t c = 0; c < corpus.contigs.size(); ++c) {
-        const auto& contig = corpus.contigs[c];
-        auto& frequency = frequencies[contig.sample_id];
-        for (std::uint32_t start = 0; start < contig.tokens.size(); ++start) {
-            const auto limit = std::min<std::uint32_t>(maximum_length,
-                static_cast<std::uint32_t>(contig.tokens.size() - start));
-            for (std::uint32_t length = 1; length <= limit; ++length) {
-                if (!contains_anchor(contig, start, length)) continue;
-                const auto key = fingerprint(contig.tokens, start, length);
-                const auto found = frequency.find(key);
-                if (found == frequency.end()) {
-                    FrequencyBucket bucket;
-                    bucket.first = {1, c, start, length};
-                    frequency.emplace(key, std::move(bucket));
-                } else {
-                    auto* occurrence = find_occurrence(
-                        found->second, corpus, c, start, length);
-                    if (occurrence == nullptr) {
-                        found->second.collisions.push_back({1, c, start, length});
-                    } else if (occurrence->count == 1) {
-                        occurrence->count = 2;
+    std::vector<TMus> result;
+    for (std::uint32_t sample = 0; sample < corpus.samples.size(); ++sample) {
+        FrequencyMap frequency;
+        for (std::uint32_t c = 0; c < corpus.contigs.size(); ++c) {
+            const auto& contig = corpus.contigs[c];
+            if (contig.sample_id != sample) continue;
+            for (std::uint32_t start = 0; start < contig.tokens.size(); ++start) {
+                const auto limit = std::min<std::uint32_t>(maximum_length,
+                    static_cast<std::uint32_t>(contig.tokens.size() - start));
+                for (std::uint32_t length = 1; length <= limit; ++length) {
+                    if (!contains_anchor(contig, start, length)) continue;
+                    const auto key = fingerprint(contig.tokens, start, length);
+                    const auto found = frequency.find(key);
+                    if (found == frequency.end()) {
+                        FrequencyBucket bucket;
+                        bucket.first = {1, c, start, length};
+                        frequency.emplace(key, std::move(bucket));
+                    } else {
+                        auto* occurrence = find_occurrence(
+                            found->second, corpus, c, start, length);
+                        if (occurrence == nullptr) {
+                            found->second.collisions.push_back({1, c, start, length});
+                        } else if (occurrence->count == 1) {
+                            occurrence->count = 2;
+                        }
                     }
                 }
             }
         }
-    }
 
-    std::vector<TMus> result;
-    for (std::uint32_t sample = 0; sample < frequencies.size(); ++sample) {
-        const auto& frequency = frequencies[sample];
         const auto consider = [&](const Occurrence& occurrence) {
             if (occurrence.count != 1) return;
             const auto& contig = corpus.contigs[occurrence.contig];
