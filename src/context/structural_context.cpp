@@ -7,7 +7,9 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <limits>
+#include <malloc.h>
 #include <queue>
 #include <sstream>
 #include <stdexcept>
@@ -97,6 +99,21 @@ struct AlphaPrimeDistribution {
     std::uint64_t ten_to_forty_nine = 0;
     std::uint64_t fifty_or_more = 0;
 };
+
+std::uint64_t current_rss_kib() {
+    std::ifstream status("/proc/self/status");
+    std::string key;
+    while (status >> key) {
+        if (key == "VmRSS:") {
+            std::uint64_t value = 0;
+            status >> value;
+            return value;
+        }
+        std::string rest;
+        std::getline(status, rest);
+    }
+    return 0;
+}
 
 struct TrieNode {
     std::unordered_map<TokenId, std::uint32_t> next;
@@ -347,14 +364,24 @@ const Occurrence* lookup_occurrence(const FrequencyMap& frequency,
 std::vector<TMus> find_tmus(const Corpus& corpus, const std::uint32_t maximum_length) {
     std::vector<TMus> result;
     for (std::uint32_t sample = 0; sample < corpus.samples.size(); ++sample) {
-        FrequencyMap frequency;
-        for (std::uint32_t c = 0; c < corpus.contigs.size(); ++c) {
-            const auto& contig = corpus.contigs[c];
-            if (contig.sample_id != sample) continue;
-            for (std::uint32_t start = 0; start < contig.tokens.size(); ++start) {
-                const auto limit = std::min<std::uint32_t>(maximum_length,
-                    static_cast<std::uint32_t>(contig.tokens.size() - start));
-                for (std::uint32_t length = 1; length <= limit; ++length) {
+        FrequencyMap previous_frequency;
+        std::uint64_t sample_tmus_count = 0;
+        for (std::uint32_t length = 1; length <= maximum_length; ++length) {
+            FrequencyMap frequency;
+            std::size_t candidate_limit = 0;
+            for (const auto& contig : corpus.contigs) {
+                if (contig.sample_id != sample || contig.tokens.size() < length) continue;
+                candidate_limit += contig.tokens.size() - length + 1;
+            }
+            frequency.max_load_factor(0.8F);
+            frequency.reserve(candidate_limit);
+
+            for (std::uint32_t c = 0; c < corpus.contigs.size(); ++c) {
+                const auto& contig = corpus.contigs[c];
+                if (contig.sample_id != sample || contig.tokens.size() < length) continue;
+                const auto end = static_cast<std::uint32_t>(
+                    contig.tokens.size() - length + 1);
+                for (std::uint32_t start = 0; start < end; ++start) {
                     if (!contains_anchor(contig, start, length)) continue;
                     const auto key = fingerprint(contig.tokens, start, length);
                     const auto found = frequency.find(key);
@@ -373,31 +400,43 @@ std::vector<TMus> find_tmus(const Corpus& corpus, const std::uint32_t maximum_le
                     }
                 }
             }
-        }
 
-        const auto consider = [&](const Occurrence& occurrence) {
-            if (occurrence.count != 1) return;
-            const auto& contig = corpus.contigs[occurrence.contig];
-            bool minimal = true;
-            if (occurrence.length > 1) {
-                for (const std::uint32_t trim_left : {0U, 1U}) {
-                    const std::uint32_t start = occurrence.start + trim_left;
-                    const std::uint32_t length = occurrence.length - 1;
-                    if (!contains_anchor(contig, start, length)) continue;
-                    const auto* shorter = lookup_occurrence(
-                        frequency, corpus, occurrence.contig, start, length);
-                    if (shorter != nullptr && shorter->count == 1) {
-                        minimal = false;
-                        break;
+            const auto consider = [&](const Occurrence& occurrence) {
+                if (occurrence.count != 1) return;
+                const auto& contig = corpus.contigs[occurrence.contig];
+                if (length > 1) {
+                    for (const std::uint32_t trim_left : {0U, 1U}) {
+                        const std::uint32_t shorter_start =
+                            occurrence.start + trim_left;
+                        if (!contains_anchor(contig, shorter_start, length - 1)) continue;
+                        const auto* shorter = lookup_occurrence(
+                            previous_frequency, corpus, occurrence.contig,
+                            shorter_start, length - 1);
+                        if (shorter != nullptr && shorter->count == 1) return;
                     }
                 }
+                result.push_back(
+                    {sample, occurrence.contig, occurrence.start, occurrence.length});
+                ++sample_tmus_count;
+            };
+            for (const auto& item : frequency) {
+                consider(item.second.first);
+                for (const auto& collision : item.second.collisions) consider(collision);
             }
-            if (minimal) result.push_back(
-                {sample, occurrence.contig, occurrence.start, occurrence.length});
-        };
-        for (const auto& item : frequency) {
-            consider(item.second.first);
-            for (const auto& collision : item.second.collisions) consider(collision);
+            const auto entries = frequency.size();
+            const auto rss_before_release = current_rss_kib();
+            previous_frequency.clear();
+            previous_frequency.rehash(0);
+            previous_frequency = std::move(frequency);
+            malloc_trim(0);
+            const auto rss_after_release = current_rss_kib();
+            std::cerr << "tMUS frequency sample=" << corpus.samples[sample]
+                      << " length=" << length
+                      << " entries=" << entries
+                      << " sample_tmus=" << sample_tmus_count
+                      << " total_tmus=" << result.size()
+                      << " rss_before_release_kib=" << rss_before_release
+                      << " rss_after_release_kib=" << rss_after_release << '\n';
         }
     }
     std::sort(result.begin(), result.end(), [&](const TMus& left, const TMus& right) {
@@ -433,9 +472,11 @@ void add_pattern(std::vector<TrieNode>& trie,
 }
 
 std::vector<TrieNode> make_automaton(const std::vector<TMus>& tmus,
-                                    const Corpus& corpus) {
+                                    const Corpus& corpus,
+                                    const std::uint32_t sample) {
     std::vector<TrieNode> trie(1);
     for (const auto& item : tmus) {
+        if (item.sample != sample) continue;
         auto pattern = canonical_tokens(
             corpus.contigs[item.contig], item.start, item.length);
         const auto key = fingerprint_key(fingerprint(
@@ -470,11 +511,11 @@ std::vector<TrieNode> make_automaton(const std::vector<TMus>& tmus,
 
 void assign_alpha(Corpus& corpus,
                   const std::vector<TrieNode>& trie,
-                  const std::uint32_t radius) {
+                  const std::uint32_t radius,
+                  const std::uint32_t sample) {
     for (auto& contig : corpus.contigs) {
         const auto sample_count = corpus.samples.size();
-        std::vector<std::vector<std::int64_t>> difference(
-            sample_count, std::vector<std::int64_t>(contig.anchors.size() + 1));
+        std::vector<std::int64_t> difference(contig.anchors.size() + 1);
         std::vector<std::uint32_t> positions;
         positions.reserve(contig.anchors.size());
         for (const auto& anchor : contig.anchors) positions.push_back(anchor.token_position);
@@ -496,20 +537,18 @@ void assign_alpha(Corpus& corpus,
                 if (first == last) continue;
                 const auto begin_index = static_cast<std::size_t>(first - positions.begin());
                 const auto end_index = static_cast<std::size_t>(last - positions.begin());
-                ++difference[tag.sample][begin_index];
-                --difference[tag.sample][end_index];
+                ++difference[begin_index];
+                --difference[end_index];
             }
         }
-        for (std::uint32_t sample = 0; sample < sample_count; ++sample) {
-            std::int64_t value = 0;
-            for (std::size_t i = 0; i < contig.anchors.size(); ++i) {
-                value += difference[sample][i];
-                if (contig.anchors[i].alpha_prime.empty()) {
-                    contig.anchors[i].alpha_prime.resize(sample_count);
-                }
-                contig.anchors[i].alpha_prime[sample] =
-                    static_cast<std::uint64_t>(value);
+        std::int64_t value = 0;
+        for (std::size_t i = 0; i < contig.anchors.size(); ++i) {
+            value += difference[i];
+            if (contig.anchors[i].alpha_prime.empty()) {
+                contig.anchors[i].alpha_prime.resize(sample_count);
             }
+            contig.anchors[i].alpha_prime[sample] =
+                static_cast<std::uint64_t>(value);
         }
     }
 }
@@ -543,6 +582,11 @@ void assign_tmus_keys(Corpus& corpus,
                 }
             }
         }
+    }
+}
+
+void finalize_tmus_keys(Corpus& corpus) {
+    for (auto& contig : corpus.contigs) {
         for (auto& anchor : contig.anchors) {
             std::sort(anchor.tmus_keys.begin(), anchor.tmus_keys.end());
             anchor.tmus_keys.erase(
@@ -676,9 +720,24 @@ StructuralContextResult build_structural_contexts(
     load_tokens(structural_tokens, corpus);
     const std::uint32_t maximum_length = 2 * context_radius_tokens + 1;
     const auto tmus = find_tmus(corpus, maximum_length);
-    auto automaton = make_automaton(tmus, corpus);
-    assign_alpha(corpus, automaton, context_radius_tokens);
-    assign_tmus_keys(corpus, automaton, context_radius_tokens);
+    for (std::uint32_t sample = 0; sample < corpus.samples.size(); ++sample) {
+        auto automaton = make_automaton(tmus, corpus, sample);
+        std::cerr << "tMUS automaton sample=" << corpus.samples[sample]
+                  << " nodes=" << automaton.size()
+                  << " rss_before_apply_kib=" << current_rss_kib() << '\n';
+        assign_alpha(corpus, automaton, context_radius_tokens, sample);
+        assign_tmus_keys(corpus, automaton, context_radius_tokens);
+        std::cerr << "tMUS automaton sample=" << corpus.samples[sample]
+                  << " nodes=" << automaton.size()
+                  << " rss_after_apply_kib=" << current_rss_kib() << '\n';
+        automaton.clear();
+        automaton.shrink_to_fit();
+        malloc_trim(0);
+        std::cerr << "tMUS automaton sample=" << corpus.samples[sample]
+                  << " released=true rss_after_release_kib="
+                  << current_rss_kib() << '\n';
+    }
+    finalize_tmus_keys(corpus);
 
     std::vector<std::uint64_t> tmus_per_sample(corpus.samples.size());
     std::ofstream tmus_stream(tmus_output);
