@@ -27,7 +27,8 @@ struct AnchorPosition {
     std::string anchor_id;
     std::uint32_t token_position = 0;
     std::vector<std::uint64_t> alpha_prime;
-    std::vector<std::string> tmus_keys;
+    std::vector<std::uint32_t> tmus_key_ids;
+    std::size_t finalized_tmus_key_count = 0;
 };
 
 struct ContigTokens {
@@ -46,6 +47,8 @@ struct Corpus {
     std::unordered_map<std::string, TokenId> token_ids;
     std::vector<bool> token_is_anchor;
     std::vector<ContigTokens> contigs;
+    std::unordered_map<std::string, std::uint32_t> tmus_key_ids;
+    std::vector<std::string> tmus_key_labels;
 };
 
 struct Occurrence {
@@ -90,7 +93,7 @@ struct TMus {
 struct PatternTag {
     std::uint32_t sample = 0;
     std::uint32_t length = 0;
-    std::string key;
+    std::uint32_t key_id = 0;
 };
 
 struct AlphaPrimeDistribution {
@@ -167,6 +170,19 @@ std::string fingerprint_key(const Fingerprint& value) {
     output << std::hex << std::setw(16) << std::setfill('0') << value.first
            << std::setw(16) << value.second << std::dec << ':' << value.length;
     return output.str();
+}
+
+std::uint32_t intern_tmus_key(Corpus& corpus, std::string key) {
+    const auto found = corpus.tmus_key_ids.find(key);
+    if (found != corpus.tmus_key_ids.end()) return found->second;
+    if (corpus.tmus_key_labels.size() >=
+        std::numeric_limits<std::uint32_t>::max()) {
+        throw std::runtime_error("too many tMUS keys");
+    }
+    const auto id = static_cast<std::uint32_t>(corpus.tmus_key_labels.size());
+    corpus.tmus_key_labels.push_back(std::move(key));
+    corpus.tmus_key_ids.emplace(corpus.tmus_key_labels.back(), id);
+    return id;
 }
 
 std::vector<TokenId> canonical_tokens(const ContigTokens& contig,
@@ -466,24 +482,24 @@ void add_pattern(std::vector<TrieNode>& trie,
     const auto duplicate = std::find_if(trie[node].output.begin(), trie[node].output.end(),
         [&](const PatternTag value) {
             return value.sample == tag.sample && value.length == tag.length &&
-                   value.key == tag.key;
+                   value.key_id == tag.key_id;
         });
     if (duplicate == trie[node].output.end()) trie[node].output.push_back(tag);
 }
 
 std::vector<TrieNode> make_automaton(const std::vector<TMus>& tmus,
-                                    const Corpus& corpus,
+                                    Corpus& corpus,
                                     const std::uint32_t sample) {
     std::vector<TrieNode> trie(1);
     for (const auto& item : tmus) {
         if (item.sample != sample) continue;
         auto pattern = canonical_tokens(
             corpus.contigs[item.contig], item.start, item.length);
-        const auto key = fingerprint_key(fingerprint(
-            pattern, 0, static_cast<std::uint32_t>(pattern.size())));
-        add_pattern(trie, pattern, {item.sample, item.length, key});
+        const auto key_id = intern_tmus_key(corpus, fingerprint_key(fingerprint(
+            pattern, 0, static_cast<std::uint32_t>(pattern.size()))));
+        add_pattern(trie, pattern, {item.sample, item.length, key_id});
         std::reverse(pattern.begin(), pattern.end());
-        add_pattern(trie, pattern, {item.sample, item.length, key});
+        add_pattern(trie, pattern, {item.sample, item.length, key_id});
     }
     std::queue<std::uint32_t> pending;
     for (const auto edge : trie[0].next) pending.push(edge.second);
@@ -578,20 +594,43 @@ void assign_tmus_keys(Corpus& corpus,
                 for (auto iter = first; iter != last; ++iter) {
                     const auto anchor_index =
                         static_cast<std::size_t>(iter - positions.begin());
-                    contig.anchors[anchor_index].tmus_keys.push_back(tag.key);
+                    contig.anchors[anchor_index].tmus_key_ids.push_back(tag.key_id);
                 }
             }
         }
     }
 }
 
-void finalize_tmus_keys(Corpus& corpus) {
+void finalize_new_tmus_keys(Corpus& corpus) {
     for (auto& contig : corpus.contigs) {
         for (auto& anchor : contig.anchors) {
-            std::sort(anchor.tmus_keys.begin(), anchor.tmus_keys.end());
-            anchor.tmus_keys.erase(
-                std::unique(anchor.tmus_keys.begin(), anchor.tmus_keys.end()),
-                anchor.tmus_keys.end());
+            auto& ids = anchor.tmus_key_ids;
+            const auto less = [&](const std::uint32_t left,
+                                  const std::uint32_t right) {
+                return corpus.tmus_key_labels[left] < corpus.tmus_key_labels[right];
+            };
+            const auto equal = [&](const std::uint32_t left,
+                                   const std::uint32_t right) {
+                return left == right;
+            };
+            auto suffix_begin = ids.begin() +
+                static_cast<std::ptrdiff_t>(anchor.finalized_tmus_key_count);
+            std::sort(suffix_begin, ids.end(), less);
+            ids.erase(std::unique(suffix_begin, ids.end(), equal), ids.end());
+
+            if (anchor.finalized_tmus_key_count != 0) {
+                std::vector<std::uint32_t> merged;
+                merged.reserve(ids.size());
+                std::set_union(
+                    ids.begin(),
+                    ids.begin() + static_cast<std::ptrdiff_t>(
+                        anchor.finalized_tmus_key_count),
+                    ids.begin() + static_cast<std::ptrdiff_t>(
+                        anchor.finalized_tmus_key_count),
+                    ids.end(), std::back_inserter(merged), less);
+                ids.swap(merged);
+            }
+            anchor.finalized_tmus_key_count = ids.size();
         }
     }
 }
@@ -733,11 +772,12 @@ StructuralContextResult build_structural_contexts(
         automaton.clear();
         automaton.shrink_to_fit();
         malloc_trim(0);
+        finalize_new_tmus_keys(corpus);
+        malloc_trim(0);
         std::cerr << "tMUS automaton sample=" << corpus.samples[sample]
                   << " released=true rss_after_release_kib="
                   << current_rss_kib() << '\n';
     }
-    finalize_tmus_keys(corpus);
 
     std::vector<std::uint64_t> tmus_per_sample(corpus.samples.size());
     std::ofstream tmus_stream(tmus_output);
@@ -789,12 +829,12 @@ StructuralContextResult build_structural_contexts(
                     << anchor.token_position << '\t' << begin << '\t' << end
                     << '\t' << end - begin << '\t' << key << '\t'
                     << join_token_range(contig, corpus, begin, end) << '\t';
-            if (anchor.tmus_keys.empty()) {
+            if (anchor.tmus_key_ids.empty()) {
                 anchors << '.';
             } else {
-                for (std::size_t i = 0; i < anchor.tmus_keys.size(); ++i) {
+                for (std::size_t i = 0; i < anchor.tmus_key_ids.size(); ++i) {
                     if (i) anchors << ',';
-                    anchors << anchor.tmus_keys[i];
+                    anchors << corpus.tmus_key_labels[anchor.tmus_key_ids[i]];
                 }
             }
             for (const auto value : anchor.alpha_prime) anchors << '\t' << value;
