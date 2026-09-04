@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <stdexcept>
 #include <tuple>
@@ -653,8 +654,7 @@ void validate_patch_with_zdrop(PatchAttempt& attempt,
     const auto query = fetch_patch_query(
         index, left.sequence_b, query_interval, left.strand);
     const auto max_memory =
-        static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) *
-        1024ULL * 1024ULL * 1024ULL;
+        effective_wfa_memory_bytes(parameters.max_wfa_memory_gb);
     const auto local_ref_base = attempt.ref_interval.start - ref_interval.start;
     const auto local_query_base =
         left.strand == '+'
@@ -718,8 +718,7 @@ bool retain_clean_prefix(PatchAttempt& attempt,
         19, 39, 3, 81, 1,
         wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
     const auto max_memory =
-        static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) *
-        1024ULL * 1024ULL * 1024ULL;
+        effective_wfa_memory_bytes(parameters.max_wfa_memory_gb);
     aligner.setMaxMemory(max_memory, max_memory);
     if (aligner.alignEnd2End(ref, query) !=
         wfa::WFAligner::StatusAlgCompleted) {
@@ -894,14 +893,25 @@ PatchAttempt align_patch_interval(faidx_t* index,
     const auto ref = fetch_interval(index, left.sequence_a, attempt.ref_interval);
     const auto query = fetch_patch_query(
         index, left.sequence_b, attempt.query_interval, left.strand);
+    const auto primary_max_memory =
+        effective_wfa_memory_bytes(parameters.max_wfa_memory_gb);
+    std::cerr << "Patch WFA begin sample_a=" << left.sample_a
+              << " sample_b=" << left.sample_b
+              << " sequence_a=" << left.sequence_a
+              << " sequence_b=" << left.sequence_b
+              << " ref_start=" << attempt.ref_interval.start
+              << " ref_end=" << attempt.ref_interval.end
+              << " query_start=" << attempt.query_interval.start
+              << " query_end=" << attempt.query_interval.end
+              << " ref_bp=" << ref.size()
+              << " query_bp=" << query.size()
+              << " rss_kib=" << current_rss_kib()
+              << " wfa_limit_bytes=" << primary_max_memory << '\n';
     try {
         wfa::WFAlignerGapAffine2Pieces aligner(
             19, 39, 3, 81, 1,
             wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
-        const auto max_memory =
-            static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) *
-            1024ULL * 1024ULL * 1024ULL;
-        aligner.setMaxMemory(max_memory, max_memory);
+        aligner.setMaxMemory(primary_max_memory, primary_max_memory);
         const auto status = aligner.alignEnd2End(ref, query);
         if (status < 0) {
             attempt.classification = "patch_wfa_failed";
@@ -971,9 +981,8 @@ PatchAttempt align_patch_interval(faidx_t* index,
                         19, 39, 3, 81, 1,
                         wfa::WFAligner::Alignment,
                         wfa::WFAligner::MemoryHigh);
-                    const auto max_memory =
-                        static_cast<std::uint64_t>(parameters.max_wfa_memory_gb) *
-                        1024ULL * 1024ULL * 1024ULL;
+                    const auto max_memory = effective_wfa_memory_bytes(
+                        parameters.max_wfa_memory_gb);
                     gap_aligner.setMaxMemory(max_memory, max_memory);
                     const auto gap_status =
                         gap_aligner.alignEnd2End(gap_ref, gap_query);
@@ -1153,7 +1162,6 @@ PatchAttempt evaluate_patch_gap(faidx_t* index,
 std::vector<ChainBundle> patch_adjacent_bundles(
     std::vector<ChainBundle> bundles,
     faidx_t* index,
-    const std::vector<ExtensionCandidate>&,
     const AnchorStore& store,
     const BaseAlignmentParameters& parameters,
     const std::filesystem::path& patch_extension_output,

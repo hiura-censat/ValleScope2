@@ -796,7 +796,11 @@ StructuralContextResult build_structural_contexts(
         ++tmus_per_sample[item.sample];
     }
 
-    struct ContextGroup { std::string exact; std::string tokens; std::uint64_t count = 0; };
+    struct ContextGroup {
+        std::uint32_t contig = 0;
+        std::uint32_t center = 0;
+        std::uint64_t count = 0;
+    };
     std::unordered_map<std::string, ContextGroup> context_groups;
     std::ofstream anchors(anchor_context_output);
     if (!anchors) throw std::runtime_error("cannot create anchor context output");
@@ -807,7 +811,9 @@ StructuralContextResult build_structural_contexts(
     anchors << '\n';
 
     StructuralContextResult result;
-    for (const auto& contig : corpus.contigs) {
+    for (std::uint32_t contig_id = 0; contig_id < corpus.contigs.size();
+         ++contig_id) {
+        const auto& contig = corpus.contigs[contig_id];
         for (const auto& anchor : contig.anchors) {
             std::uint32_t begin = 0, end = 0;
             const auto context = canonical_context(
@@ -817,9 +823,16 @@ StructuralContextResult build_structural_contexts(
             const auto key = sha256_text(exact);
             auto found = context_groups.find(key);
             if (found == context_groups.end()) {
-                context_groups.emplace(key, ContextGroup{exact, join_tokens(context, corpus), 1});
+                context_groups.emplace(
+                    key, ContextGroup{contig_id, anchor.token_position, 1});
             } else {
-                if (found->second.exact != exact) {
+                std::uint32_t representative_begin = 0;
+                std::uint32_t representative_end = 0;
+                const auto representative = canonical_context(
+                    corpus.contigs[found->second.contig], corpus,
+                    found->second.center, context_radius_tokens,
+                    representative_begin, representative_end);
+                if (representative != context) {
                     throw std::runtime_error("SHA-256 collision between structural contexts");
                 }
                 ++found->second.count;
@@ -843,16 +856,26 @@ StructuralContextResult build_structural_contexts(
         }
     }
 
-    std::vector<std::pair<std::string, ContextGroup>> ordered_groups(
-        context_groups.begin(), context_groups.end());
+    using ContextGroupEntry =
+        std::pair<const std::string, ContextGroup>;
+    std::vector<const ContextGroupEntry*> ordered_groups;
+    ordered_groups.reserve(context_groups.size());
+    for (const auto& item : context_groups) ordered_groups.push_back(&item);
     std::sort(ordered_groups.begin(), ordered_groups.end(),
-              [](const auto& left, const auto& right) { return left.first < right.first; });
+              [](const auto* left, const auto* right) {
+                  return left->first < right->first;
+              });
     std::ofstream groups(context_group_output);
     if (!groups) throw std::runtime_error("cannot create context group output");
     groups << "canonical_context_key\tcanonical_tokens\tanchor_count\n";
-    for (const auto& item : ordered_groups) {
-        groups << item.first << '\t' << item.second.tokens << '\t'
-               << item.second.count << '\n';
+    for (const auto* item : ordered_groups) {
+        std::uint32_t begin = 0;
+        std::uint32_t end = 0;
+        const auto context = canonical_context(
+            corpus.contigs[item->second.contig], corpus, item->second.center,
+            context_radius_tokens, begin, end);
+        groups << item->first << '\t' << join_tokens(context, corpus) << '\t'
+               << item->second.count << '\n';
     }
     result.context_group_count = ordered_groups.size();
     result.tmus_count = tmus.size();

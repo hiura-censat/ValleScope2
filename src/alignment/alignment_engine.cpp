@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -21,7 +23,44 @@ struct SequenceDeleter {
     void operator()(char* sequence) const { free(sequence); }
 };
 
+std::uint64_t read_proc_kib(const char* path, const char* key) {
+    std::ifstream input(path);
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.rfind(key, 0) != 0) continue;
+        std::istringstream fields(
+            line.substr(std::char_traits<char>::length(key)));
+        std::uint64_t value = 0;
+        fields >> value;
+        return value;
+    }
+    return 0;
+}
+
 }  // namespace
+
+std::uint64_t current_rss_kib() {
+    return read_proc_kib("/proc/self/status", "VmRSS:");
+}
+
+std::uint64_t effective_wfa_memory_bytes(
+    const std::uint32_t configured_gibibytes) {
+    constexpr std::uint64_t kibibytes_per_gibibyte = 1024ULL * 1024ULL;
+    constexpr std::uint64_t reserve_kibibytes = 16ULL * kibibytes_per_gibibyte;
+    constexpr std::uint64_t minimum_kibibytes = 256ULL * 1024ULL;
+    const auto configured =
+        static_cast<std::uint64_t>(configured_gibibytes) *
+        kibibytes_per_gibibyte * 1024ULL;
+    const auto available_kibibytes =
+        read_proc_kib("/proc/meminfo", "MemAvailable:");
+    if (available_kibibytes == 0) return configured;
+    const auto headroom_kibibytes = available_kibibytes > reserve_kibibytes
+        ? available_kibibytes - reserve_kibibytes
+        : available_kibibytes / 2;
+    const auto bounded_kibibytes =
+        std::max(minimum_kibibytes, headroom_kibibytes);
+    return std::min(configured, bounded_kibibytes * 1024ULL);
+}
 
 std::uint64_t sequence_length(faidx_t* index, const std::string& sequence_id) {
     const hts_pos_t length = faidx_seq_len64(index, sequence_id.c_str());
@@ -230,16 +269,12 @@ Alignment summarize_cigar(const std::string& cigar,
     return alignment;
 }
 
-std::uint64_t gibibytes_to_bytes(const std::uint32_t gibibytes) {
-    return static_cast<std::uint64_t>(gibibytes) * 1024ULL * 1024ULL * 1024ULL;
-}
-
 Alignment global_align_wfa2(const std::string& ref,
                             const std::string& query,
                             const std::uint32_t max_memory_gb) {
     wfa::WFAlignerGapAffine aligner(
         4, 6, 2, wfa::WFAligner::Alignment, wfa::WFAligner::MemoryHigh);
-    const auto max_memory = gibibytes_to_bytes(max_memory_gb);
+    const auto max_memory = effective_wfa_memory_bytes(max_memory_gb);
     aligner.setMaxMemory(max_memory, max_memory);
     const auto status = aligner.alignEnd2End(ref, query);
     if (status < 0) {

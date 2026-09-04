@@ -4,9 +4,14 @@
 
 #include <htslib/faidx.h>
 
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -432,7 +437,7 @@ BaseAlignmentResult align_chain_bundles(
     using namespace alignment_detail;
 
     AnchorStore anchor_store;
-    const auto loaded_bundles = load_chain_files(
+    auto loaded_bundles = load_chain_files(
         chain_files, chain_anchor_files, grouped_anchors, anchor_store);
     std::vector<ExtensionCandidate> extension_candidates;
     if (parameters.chain_extension) {
@@ -447,15 +452,22 @@ BaseAlignmentResult align_chain_bundles(
     if (!index) throw std::runtime_error("cannot load FASTA index for base alignment");
 
     auto bundles = extend_adjacent_bundles(
-        loaded_bundles, extension_candidates, anchor_store, parameters,
+        std::move(loaded_bundles), extension_candidates, anchor_store, parameters,
         metadata_output.parent_path() / "chain_extensions.tsv",
         metadata_output.parent_path() / "chain_extension_anchors.tsv", result);
     result.post_extension_bundle_count = bundles.size();
 
+    extension_candidates.clear();
+    extension_candidates.shrink_to_fit();
+#if defined(__GLIBC__)
+    malloc_trim(0);
+#endif
+    std::cerr << "Released extension candidates before patching; rss_kib="
+              << current_rss_kib() << '\n';
+
     const auto pre_patch_bundle_count = bundles.size();
     bundles = patch_adjacent_bundles(
-        std::move(bundles), index.get(), extension_candidates, anchor_store,
-        parameters,
+        std::move(bundles), index.get(), anchor_store, parameters,
         metadata_output.parent_path() / "patch_intervals.tsv",
         result.patch_count);
     result.post_patch_bundle_count = bundles.size();

@@ -116,6 +116,8 @@ std::string fetch_interval(faidx_t* index,
 Alignment align_segment(const std::string& ref,
                         const std::string& query,
                         const BaseAlignmentParameters& parameters);
+std::uint64_t current_rss_kib();
+std::uint64_t effective_wfa_memory_bytes(std::uint32_t configured_gibibytes);
 void append_cigar_operation(std::string& cigar,
                             std::uint64_t length,
                             char op);
@@ -162,7 +164,6 @@ std::vector<ChainBundle> final_trim_bundles(
 std::vector<ChainBundle> patch_adjacent_bundles(
     std::vector<ChainBundle> bundles,
     faidx_t* index,
-    const std::vector<ExtensionCandidate>& candidates,
     const AnchorStore& store,
     const BaseAlignmentParameters& parameters,
     const std::filesystem::path& patch_extension_output,
