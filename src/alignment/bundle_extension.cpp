@@ -40,6 +40,9 @@ struct ExtensionAttempt {
     std::uint64_t remaining_query_gap = 0;
 };
 
+using CandidateTrack = std::vector<const ExtensionCandidate*>;
+using CandidateIndex = std::unordered_map<std::string, CandidateTrack>;
+
 std::string track_key(const ExtensionCandidate& candidate) {
     return candidate.sample_a + '\x1f' + candidate.sample_b + '\x1f' +
            candidate.sequence_a + '\x1f' + candidate.sequence_b + '\x1f' +
@@ -85,7 +88,6 @@ bool candidate_between(const ExtensionCandidate& candidate,
                        const ChainBundle& left,
                        const ChainBundle& right,
                        const BaseAlignmentParameters& parameters) {
-    if (track_key(candidate) != track_key(left)) return false;
     if (candidate.ref_center <= left.ref_end ||
         candidate.ref_center >= right.ref_start) {
         return false;
@@ -98,6 +100,23 @@ bool candidate_between(const ExtensionCandidate& candidate,
     const auto qgap = query_gap_between_bundles(left, right);
     if (qgap > parameters.max_chain_extension_bp) return false;
     return true;
+}
+
+CandidateIndex build_candidate_index(
+    const std::vector<ExtensionCandidate>& candidates) {
+    CandidateIndex index;
+    for (const auto& candidate : candidates) {
+        index[track_key(candidate)].push_back(&candidate);
+    }
+    for (auto& entry : index) {
+        auto& track = entry.second;
+        std::sort(track.begin(), track.end(),
+                  [](const ExtensionCandidate* left,
+                     const ExtensionCandidate* right) {
+                      return left->ref_center < right->ref_center;
+                  });
+    }
+    return index;
 }
 
 bool predecessor_allowed(const ExtensionNode& predecessor,
@@ -221,14 +240,28 @@ double extension_path_prefix_score(
 }
 
 std::vector<const ExtensionCandidate*> ordered_gap_candidates(
-    const std::vector<ExtensionCandidate>& candidates,
+    const CandidateIndex& candidates,
     const ChainBundle& left,
     const ChainBundle& right,
     const BaseAlignmentParameters& parameters) {
     std::vector<const ExtensionCandidate*> selected;
-    for (const auto& candidate : candidates) {
-        if (candidate_between(candidate, left, right, parameters)) {
-            selected.push_back(&candidate);
+    const auto track = candidates.find(track_key(left));
+    if (track == candidates.end()) return selected;
+    const auto begin = std::upper_bound(
+        track->second.begin(), track->second.end(), left.ref_end,
+        [](const std::uint64_t position,
+           const ExtensionCandidate* candidate) {
+            return position < candidate->ref_center;
+        });
+    const auto end = std::lower_bound(
+        begin, track->second.end(), right.ref_start,
+        [](const ExtensionCandidate* candidate,
+           const std::uint64_t position) {
+            return candidate->ref_center < position;
+        });
+    for (auto candidate = begin; candidate != end; ++candidate) {
+        if (candidate_between(**candidate, left, right, parameters)) {
+            selected.push_back(*candidate);
         }
     }
     std::sort(selected.begin(), selected.end(),
@@ -246,27 +279,28 @@ std::vector<const ExtensionCandidate*> ordered_gap_candidates(
 }
 
 std::uint64_t count_copy_support(
-    const std::vector<ExtensionCandidate>& candidates,
+    const CandidateIndex& candidates,
     const ChainBundle& left,
     const ChainBundle& right,
     const std::string& side) {
     std::uint64_t count = 0;
-    for (const auto& candidate : candidates) {
-        if (track_key(candidate) != track_key(left)) continue;
-        if (candidate.support_direction != "both") continue;
+    const auto track = candidates.find(track_key(left));
+    if (track == candidates.end()) return count;
+    for (const auto* candidate : track->second) {
+        if (candidate->support_direction != "both") continue;
         if (side == "query") {
             if (left.strand == '+') {
-                if (candidate.query_center > left.query_end &&
-                    candidate.query_center < right.query_start) {
+                if (candidate->query_center > left.query_end &&
+                    candidate->query_center < right.query_start) {
                     ++count;
                 }
-            } else if (candidate.query_center < left.query_start &&
-                       candidate.query_center > right.query_end) {
+            } else if (candidate->query_center < left.query_start &&
+                       candidate->query_center > right.query_end) {
                 ++count;
             }
         } else if (side == "ref") {
-            if (candidate.ref_center > left.ref_end &&
-                candidate.ref_center < right.ref_start) {
+            if (candidate->ref_center > left.ref_end &&
+                candidate->ref_center < right.ref_start) {
                 ++count;
             }
         }
@@ -277,7 +311,7 @@ std::uint64_t count_copy_support(
 ExtensionAttempt run_extension_dp(
     const ChainBundle& left,
     const ChainBundle& right,
-    const std::vector<ExtensionCandidate>& all_candidates,
+    const CandidateIndex& all_candidates,
     const BaseAlignmentParameters& parameters) {
     ExtensionAttempt attempt;
     attempt.ref_gap = right.ref_start - left.ref_end;
@@ -548,6 +582,8 @@ std::vector<ChainBundle> extend_adjacent_bundles(
                                   right.query_end, right.source, right.chain_id);
               });
 
+    const auto candidate_index = build_candidate_index(candidates);
+
     std::vector<ChainBundle> extended;
     std::uint64_t extension_id = 0;
     for (const auto& bundle : bundles) {
@@ -557,7 +593,7 @@ std::vector<ChainBundle> extend_adjacent_bundles(
         }
 
         auto attempt = run_extension_dp(
-            extended.back(), bundle, candidates, parameters);
+            extended.back(), bundle, candidate_index, parameters);
         write_extension_report(extension_report, extension_id,
                                extended.back(), bundle, attempt);
         write_extension_anchor_report(extension_anchor_report, extension_id,
