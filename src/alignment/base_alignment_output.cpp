@@ -116,7 +116,9 @@ void write_metadata(const std::filesystem::path& path,
            << "  \"paf_normalization_unresolved_overlap_count\": "
            << result.paf_normalization_unresolved_overlap_count << ",\n"
            << "  \"paf_normalization_realign_count\": "
-           << result.paf_normalization_realign_count << "\n"
+           << result.paf_normalization_realign_count << ",\n"
+           << "  \"paf_normalization_realign_failed_count\": "
+           << result.paf_normalization_realign_failed_count << "\n"
            << "}\n";
 }
 

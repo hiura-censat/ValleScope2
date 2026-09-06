@@ -72,6 +72,7 @@ struct BaseAlignmentResult {
     std::uint64_t paf_normalization_clipped_block_count = 0;
     std::uint64_t paf_normalization_unresolved_overlap_count = 0;
     std::uint64_t paf_normalization_realign_count = 0;
+    std::uint64_t paf_normalization_realign_failed_count = 0;
 };
 
 BaseAlignmentResult align_chain_bundles(

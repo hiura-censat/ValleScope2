@@ -131,7 +131,7 @@ Alignment global_align_fallback(const std::string& ref,
     const std::size_t rows = query.size() + 1;
     const std::size_t cols = ref.size() + 1;
     if (rows > 0 && cols > max_cells / rows) {
-        throw std::runtime_error("fallback aligner cell limit exceeded");
+        throw AlignmentResourceLimit("fallback aligner cell limit exceeded");
     }
 
     constexpr std::int32_t match = 1;
@@ -278,7 +278,8 @@ Alignment global_align_wfa2(const std::string& ref,
     aligner.setMaxMemory(max_memory, max_memory);
     const auto status = aligner.alignEnd2End(ref, query);
     if (status < 0) {
-        throw std::runtime_error("WFA2 alignment failed");
+        throw AlignmentResourceLimit(
+            "WFA2 alignment failed with status " + std::to_string(status));
     }
     return summarize_cigar(aligner.getCIGAR(true), ref, query,
                            aligner.getAlignmentScore());
@@ -345,7 +346,7 @@ Alignment align_segment(const std::string& ref,
     }
     try {
         return global_align_wfa2(ref, query, parameters.max_wfa_memory_gb);
-    } catch (const std::exception&) {
+    } catch (const AlignmentResourceLimit&) {
         return global_align_fallback(ref, query, parameters.max_fallback_cells);
     }
 }

@@ -266,7 +266,7 @@ void normalize_paf_records(std::vector<PafRecord>& records,
         << "\tright_chain_id\tleft_ref_start\tleft_ref_end"
         << "\tright_ref_start\tright_ref_end\tleft_query_start"
         << "\tleft_query_end\tright_query_start\tright_query_end"
-        << "\tref_overlap\tquery_overlap\n";
+        << "\tref_overlap\tquery_overlap\tdetail\n";
     for (auto& [key, indices] : groups) {
         std::sort(indices.begin(), indices.end(),
                   [&records](const std::size_t left, const std::size_t right) {
@@ -343,7 +343,7 @@ void normalize_paf_records(std::vector<PafRecord>& records,
                    << left.query_interval.end << '\t'
                    << right.query_interval.start << '\t'
                    << right.query_interval.end << '\t'
-                   << ref_overlap << '\t' << query_overlap << '\n';
+                   << ref_overlap << '\t' << query_overlap << "\t.\n";
 
             if (!anchor_length_overlap && !overlap_chain_duplication) {
                 ++result.paf_normalization_unresolved_overlap_count;
@@ -416,9 +416,31 @@ void normalize_paf_records(std::vector<PafRecord>& records,
 
     for (auto& record : records) {
         if (!record.needs_realign) continue;
-        realign_paf_record(record, index, parameters);
-        ++result.paf_normalization_realign_count;
+        try {
+            realign_paf_record(record, index, parameters);
+            ++result.paf_normalization_realign_count;
+        } catch (const alignment_detail::AlignmentResourceLimit& error) {
+            events << "drop\trealign_resource_limit\t"
+                   << record.target_name << '\t' << record.query_name << '\t'
+                   << record.strand << '\t' << record.chain_id << "\t.\t"
+                   << record.target_interval.start << '\t'
+                   << record.target_interval.end << "\t.\t.\t"
+                   << record.query_interval.start << '\t'
+                   << record.query_interval.end << "\t.\t.\t0\t0\t"
+                   << error.what() << '\n';
+            record.target_interval = {0, 0};
+            record.query_interval = {0, 0};
+            ++result.paf_normalization_realign_failed_count;
+            ++result.skipped_bundle_count;
+        }
     }
+
+    records.erase(
+        std::remove_if(records.begin(), records.end(),
+                       [](const PafRecord& record) {
+                           return !has_valid_intervals(record);
+                       }),
+        records.end());
 }
 
 }  // namespace

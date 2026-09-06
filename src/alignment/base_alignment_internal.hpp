@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -73,6 +74,11 @@ struct Alignment {
     std::uint64_t matches = 0;
     std::uint64_t block_length = 0;
     std::int64_t score = 0;
+};
+
+class AlignmentResourceLimit : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
 };
 
 struct AnchorStore {
